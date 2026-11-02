@@ -83,10 +83,13 @@ def dressing_room_generate(request):
             result_png, is_ai = gen_result, False
 
         b64 = base64.b64encode(result_png).decode("ascii")
+        logger.info("dressing_room_generate OK — is_ai=%s size=%s bytes=%s", is_ai, size, len(result_png))
         return JsonResponse({"image": b64, "notes": notes, "is_ai": is_ai})
     except ImageGenerationError as exc:
+        logger.error("ImageGenerationError: %s", exc)
         return JsonResponse({"error": str(exc)}, status=502)
     except Exception as exc:
+        logger.exception("Unexpected error in dressing_room_generate")
         return JsonResponse(
             {"error": f"Generation failed: {str(exc)}"},
             status=500

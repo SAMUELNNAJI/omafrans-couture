@@ -832,16 +832,44 @@ def generate_try_on(
         except ImageGenerationError as exc:
             logger.warning("Pollinations failed: %s", exc)
             if not os.environ.get("GEMINI_API_KEY", "").strip():
-                raise
+                logger.warning("No Gemini key — falling back to Pillow compositor.")
+                return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
 
     # 2. Secondary fallback: Gemini
     if os.environ.get("GEMINI_API_KEY", "").strip():
-        generated_image = _generate_with_gemini(
-            dress_bytes, size, fabric, colour_filter, notes
-        )
-        return generated_image, True
+        try:
+            generated_image = _generate_with_gemini(
+                dress_bytes, size, fabric, colour_filter, notes
+            )
+            return generated_image, True
+        except ImageGenerationError as exc:
+            logger.warning("Gemini failed: %s — falling back to Pillow compositor.", exc)
+            return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
 
-    raise ImageGenerationError(
-        "No AI generation key configured. Please set POLLINATIONS_API_KEY in .env."
-    )
+    # 3. Final fallback: always works, no API needed
+    logger.info("No AI keys configured — using Pillow compositor.")
+    return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
+
+
+def _generate_pillow_composite(
+    dress_bytes: bytes,
+    size: str = "M",
+    fabric: str = "Premium Gabardine",
+    colour_filter: str = "none",
+) -> bytes:
+    """
+    Pure-Pillow dressing room composite. Zero external dependencies.
+    Always works on any server.
+    """
+    W, H = CANVAS_W, CANVAS_H
+    bg = _room_background(W, H)
+    body_layer, geom = _body_silhouette(W, H, size)
+    composite = Image.alpha_composite(bg.convert("RGBA"), body_layer)
+    dress_img = Image.open(io.BytesIO(dress_bytes))
+    composite = _apply_dress(composite, dress_img, geom, fabric, colour_filter)
+    final = _add_room_effects(composite, W, H)
+    final = _watermark(final, W, H)
+    out = io.BytesIO()
+    final.convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue()
 
