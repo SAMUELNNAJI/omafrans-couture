@@ -15,6 +15,7 @@ import math
 import os
 import random
 from typing import Tuple
+import urllib.parse
 
 import requests
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
@@ -404,8 +405,162 @@ def _watermark(img: Image.Image, w: int, h: int) -> Image.Image:
 
 
 # ---------------------------------------------------------------------------
-# Public API & Gemini AI Generation
+# Public API & AI Generation (Pollinations.ai Flux & Gemini fallback)
 # ---------------------------------------------------------------------------
+
+COLOUR_DESCRIPTIONS: dict[str, str] = {
+    "none": "original garment colors",
+    "grayscale(1) brightness(1.9)": "ivory white",
+    "grayscale(1) brightness(1.2)": "stone gray",
+    "grayscale(1) brightness(.7)": "charcoal gray",
+    "grayscale(1) brightness(.35)": "midnight black",
+    "sepia(1) brightness(1.5) saturate(.8)": "warm sand beige",
+    "sepia(1) brightness(1.1) saturate(1.6)": "camel tan",
+    "sepia(1) hue-rotate(-20deg) saturate(2) brightness(.8)": "rust terracotta",
+    "sepia(1) brightness(.6) saturate(1.2)": "rich chocolate brown",
+    "sepia(1) hue-rotate(30deg) brightness(.7) saturate(1.4)": "olive green",
+    "hue-rotate(-60deg) saturate(1.5)": "deep wine burgundy",
+    "hue-rotate(60deg) saturate(1.6) brightness(.9)": "regal navy blue",
+    "hue-rotate(150deg) saturate(1.4) brightness(.8)": "emerald forest green",
+    "hue-rotate(-30deg) saturate(2)": "crimson red",
+    "hue-rotate(90deg) saturate(1.2) brightness(1.2)": "sky blue",
+    "hue-rotate(120deg) saturate(1.2)": "steel blue",
+    "hue-rotate(170deg) saturate(1.3)": "deep teal",
+    "hue-rotate(40deg) saturate(1.1) brightness(1.3)": "lavender lilac",
+    "hue-rotate(200deg) saturate(1.3) brightness(1.1)": "mint green",
+}
+
+
+def _detect_garment_colors(dress_bytes: bytes) -> tuple[str, str]:
+    """
+    Detect approximate garment silhouette and dominant color from uploaded image bytes.
+    """
+    try:
+        with Image.open(io.BytesIO(dress_bytes)) as img:
+            img = img.convert("RGBA")
+            w, h = img.size
+            ratio = h / max(1, w)
+            if ratio > 1.6:
+                silhouette = "flowing full-length couture dress or long trench coat"
+            elif ratio > 1.1:
+                silhouette = "tailored couture midi dress or stylish coat and trousers"
+            else:
+                silhouette = "bespoke couture outfit"
+
+            # Sample non-transparent pixels to find dominant color
+            small = img.resize((32, 32), Image.Resampling.BOX)
+            pixels = []
+            for r, g, b, a in small.getdata():
+                if a > 60:
+                    brightness = (r + g + b) / 3
+                    if 20 < brightness < 245:
+                        pixels.append((r, g, b))
+
+            if pixels:
+                avg_r = sum(p[0] for p in pixels) // len(pixels)
+                avg_g = sum(p[1] for p in pixels) // len(pixels)
+                avg_b = sum(p[2] for p in pixels) // len(pixels)
+
+                diff = max(avg_r, avg_g, avg_b) - min(avg_r, avg_g, avg_b)
+                if diff < 22:
+                    if max(avg_r, avg_g, avg_b) > 190:
+                        color = "elegant ivory cream"
+                    elif max(avg_r, avg_g, avg_b) > 110:
+                        color = "sophisticated stone gray"
+                    else:
+                        color = "sleek midnight black"
+                elif avg_r > avg_g and avg_b > avg_g:
+                    color = "deep regal purple and violet"
+                elif avg_r > avg_g and avg_r > avg_b:
+                    if avg_g > 110:
+                        color = "warm terracotta and camel"
+                    else:
+                        color = "rich crimson and wine red"
+                elif avg_b > avg_r and avg_b > avg_g:
+                    color = "regal navy blue"
+                elif avg_g > avg_r and avg_g > avg_b:
+                    color = "emerald forest green"
+                else:
+                    color = "signature couture tones"
+            else:
+                color = "signature couture tones"
+            return silhouette, color
+    except Exception as exc:
+        logger.debug("Garment detection fallback: %s", exc)
+        return "bespoke couture outfit", "signature couture tones"
+
+
+def _generate_with_pollinations(
+    dress_bytes: bytes,
+    size: str,
+    fabric: str,
+    colour_filter: str,
+    notes: str,
+) -> bytes:
+    """
+    Generate a photorealistic, human-worn fashion photograph using Pollinations.ai (Flux).
+    """
+    api_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
+    if not api_key:
+        raise ImageGenerationError(
+            "Pollinations is not configured. Set POLLINATIONS_API_KEY in .env and restart the server."
+        )
+
+    silhouette, detected_color = _detect_garment_colors(dress_bytes)
+    chosen_color = COLOUR_DESCRIPTIONS.get(colour_filter, detected_color)
+    if colour_filter == "none":
+        chosen_color = detected_color
+
+    prompt_parts = [
+        "Photorealistic 8k luxury fashion editorial photograph for Omafrans Couture.",
+        "A single elegant adult female fashion model standing gracefully alone,",
+        "full body portrait from head to toe, showing natural realistic face looking towards the camera,",
+        "natural skin texture, realistic hands, styled hair, graceful posture.",
+        f"She is wearing a bespoke {chosen_color} {silhouette} made of {fabric}.",
+        f"Tailored to fit size {size} with realistic fabric drape, tailored folds, and luxury couture stitching.",
+    ]
+    if notes:
+        prompt_parts.append(f"Custom design notes: {notes}.")
+    prompt_parts.append(
+        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting,"
+        "Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic, authentic human model in real life."
+    )
+    full_prompt = " ".join(prompt_parts)
+    encoded = urllib.parse.quote(full_prompt)
+
+    seed = random.randint(1000, 999999)
+    url = f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "OmafransCouture/1.0",
+    }
+
+    last_error = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, headers=headers, timeout=75)
+            if resp.status_code == 200 and resp.content and resp.content.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
+                with Image.open(io.BytesIO(resp.content)) as im:
+                    im.load()
+                    out = io.BytesIO()
+                    im.convert("RGB").save(out, format="PNG")
+                    logger.info("Successfully generated fitting image with Pollinations Flux.")
+                    return out.getvalue()
+            elif resp.status_code in (401, 403):
+                raise ImageGenerationError("Pollinations rejected the API key. Check POLLINATIONS_API_KEY in .env.")
+            elif resp.status_code == 429:
+                raise ImageGenerationError("Pollinations rate limit reached. Please wait a moment and try again.")
+            else:
+                last_error = f"HTTP {resp.status_code}: {resp.text[:120]}"
+        except requests.Timeout as exc:
+            last_error = "Pollinations request timed out."
+            logger.warning("Pollinations timeout attempt %d: %s", attempt + 1, exc)
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            logger.warning("Pollinations attempt %d failed: %s", attempt + 1, exc)
+
+    raise ImageGenerationError(f"Pollinations generation failed: {last_error or 'No response'}")
+
 
 def _generate_with_gemini(
     dress_bytes: bytes,
@@ -415,136 +570,77 @@ def _generate_with_gemini(
     notes: str,
 ) -> bytes | None:
     """
-    Generate a photorealistic, human-worn fitting preview with Gemini.
+    Generate a photorealistic fitting preview with Gemini.
     """
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise ImageGenerationError(
-            "Gemini is not configured. Set GEMINI_API_KEY in .env and restart the server."
+            "Gemini is not configured. Set GEMINI_API_KEY in .env."
         )
 
-    try:
-        b64_dress = base64.b64encode(dress_bytes).decode("ascii")
-        mime = "image/png"
-        if dress_bytes.startswith(b"\xff\xd8"):
-            mime = "image/jpeg"
-        elif dress_bytes.startswith(b"RIFF") and dress_bytes[8:12] == b"WEBP":
-            mime = "image/webp"
+    b64_dress = base64.b64encode(dress_bytes).decode("ascii")
+    mime = "image/png"
+    if dress_bytes.startswith(b"\xff\xd8"):
+        mime = "image/jpeg"
+    elif dress_bytes.startswith(b"RIFF") and dress_bytes[8:12] == b"WEBP":
+        mime = "image/webp"
 
-        prompt = (
-            "Create one photorealistic, full-length luxury fashion photograph for "
-            "Omafrans Couture. The attached picture is a garment reference only. "
-            "Show a real adult woman wearing that exact garment naturally on her "
-            "body. Recreate the garment faithfully: preserve its original colour, "
-            "cut, silhouette, fabric appearance, pattern, and visible details. "
-            "Do not show the reference picture itself, a pasted-in picture, a "
-            "collage, a mannequin, a hanger, or a flat-lay. Show one person from "
-            "head to toe, with a visible natural face and realistic human anatomy, "
-            "hands, proportions, skin, and fabric folds. The person must be the "
-            "main subject and the garment must be clearly visible. Compose a "
-            "single vertical 3:4 editorial photograph in a refined couture fitting "
-            "room with soft, realistic studio lighting. No text, borders, panels, "
-            "or inset images. "
-            f"Selected size: {size}. Fabric preference: {fabric}. "
-            f"{f'User design notes: {notes}. ' if notes else ''}"
-            "Keep the original garment design unless a design note explicitly "
-            "requests a change."
-        )
+    prompt = (
+        "Create one photorealistic, full-length luxury fashion photograph for "
+        "Omafrans Couture. Show a real adult woman wearing that exact garment naturally on her "
+        "body. Recreate the garment faithfully: preserve its colour, "
+        "cut, silhouette, fabric appearance, pattern, and visible details. "
+        "Show one person from head to toe, with a visible natural face and realistic human anatomy, "
+        "hands, proportions, skin, and fabric folds. The person must be the "
+        "main subject and the garment must be clearly visible. Compose a "
+        "single vertical 3:4 editorial photograph in a refined couture fitting "
+        "room with soft, realistic studio lighting. "
+        f"Selected size: {size}. Fabric preference: {fabric}. "
+        f"{f'User design notes: {notes}. ' if notes else ''}"
+    )
 
-        model = "gemini-3.1-flash-image"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "inlineData": {
-                                "mimeType": mime,
-                                "data": b64_dress,
-                            }
-                        },
-                        {"text": prompt},
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {"aspectRatio": "3:4"},
-            },
-        }
-        try:
-            resp = requests.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=100,
-            )
-        except requests.Timeout as exc:
-            raise ImageGenerationError(
-                "Gemini image generation timed out. Please try again."
-            ) from exc
-        except requests.RequestException as exc:
-            logger.warning("Gemini request failed: %s", exc)
-            raise ImageGenerationError(
-                "Could not connect to Gemini. Check the server's internet connection."
-            ) from exc
-
-        if resp.status_code == 200:
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                for part in parts:
-                    inline = part.get("inlineData") or part.get("inline_data")
-                    if inline and inline.get("data"):
-                        image_bytes = base64.b64decode(inline["data"], validate=True)
-                        with Image.open(io.BytesIO(image_bytes)) as image:
-                            image.load()
-                            output = io.BytesIO()
-                            image.convert("RGB").save(output, format="PNG")
-                        logger.info(
-                            "Successfully generated fitting image with Gemini model %s",
-                            model,
-                        )
-                        return output.getvalue()
-            reason = candidates[0].get("finishReason", "unknown") if candidates else "no candidates"
-            logger.warning(
-                "Gemini returned HTTP 200 without an image for model %s (finish reason: %s).",
-                model,
-                reason,
-            )
-            raise ImageGenerationError(
-                "Gemini did not return an image. Check the API key's image-generation "
-                "access and quota, then try again."
-            )
-        else:
-            logger.warning(
-                "Gemini AI Studio returned status %s for %s: %s",
-                resp.status_code, model, resp.text[:240]
-            )
-            if resp.status_code in (401, 403):
-                message = "Gemini rejected the API key or it lacks permission. Check GEMINI_API_KEY."
-            elif resp.status_code == 404:
-                message = "The Gemini image model is unavailable for this API key or project."
-            elif resp.status_code == 429:
-                message = "Gemini image-generation quota is exhausted. Check the project quota and billing."
-            elif resp.status_code >= 500:
-                message = "Gemini is temporarily unavailable. Please try again."
-            else:
-                message = (
-                    "Gemini rejected the image-generation request. Check the server log "
-                    "for the provider response."
-                )
-            raise ImageGenerationError(message)
-    except ImageGenerationError:
-        raise
-    except Exception as exc:
-        logger.exception("Gemini image generation failed unexpectedly.")
-        raise ImageGenerationError(
-            "Gemini image generation failed unexpectedly. Check the server log for details."
-        ) from exc
-
-    raise ImageGenerationError("Gemini did not generate an image.")
+    model = "gemini-3.1-flash-image"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "inlineData": {
+                            "mimeType": mime,
+                            "data": b64_dress,
+                        }
+                    },
+                    {"text": prompt},
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {"aspectRatio": "3:4"},
+        },
+    }
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=100,
+    )
+    if resp.status_code == 200:
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline and inline.get("data"):
+                    image_bytes = base64.b64decode(inline["data"], validate=True)
+                    with Image.open(io.BytesIO(image_bytes)) as image:
+                        image.load()
+                        output = io.BytesIO()
+                        image.convert("RGB").save(output, format="PNG")
+                    return output.getvalue()
+    raise ImageGenerationError(f"Gemini generation returned status {resp.status_code}")
 
 
 def generate_try_on(
@@ -555,7 +651,8 @@ def generate_try_on(
     notes: str = "",
 ) -> tuple[bytes, bool]:
     """
-    Generate a photorealistic dressing-room try-on image with Gemini.
+    Generate a photorealistic dressing-room try-on image with Pollinations.ai (Flux)
+    or Gemini as fallback.
 
     :param dress_bytes:   Raw bytes of the uploaded dress image.
     :param size:          One of XS / S / M / L / XL / 2XL.
@@ -564,7 +661,26 @@ def generate_try_on(
     :param notes:         Free-text design notes.
     :returns:             (PNG bytes, True)
     """
-    generated_image = _generate_with_gemini(
-        dress_bytes, size, fabric, colour_filter, notes
+    # 1. Primary: Pollinations.ai Flux
+    if os.environ.get("POLLINATIONS_API_KEY", "").strip():
+        try:
+            generated_image = _generate_with_pollinations(
+                dress_bytes, size, fabric, colour_filter, notes
+            )
+            return generated_image, True
+        except ImageGenerationError as exc:
+            logger.warning("Pollinations failed: %s", exc)
+            if not os.environ.get("GEMINI_API_KEY", "").strip():
+                raise
+
+    # 2. Secondary fallback: Gemini
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        generated_image = _generate_with_gemini(
+            dress_bytes, size, fabric, colour_filter, notes
+        )
+        return generated_image, True
+
+    raise ImageGenerationError(
+        "No AI generation key configured. Please set POLLINATIONS_API_KEY in .env."
     )
-    return generated_image, True
+
