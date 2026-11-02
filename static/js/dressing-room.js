@@ -359,7 +359,7 @@
 
         /* --- display result in 3D or fallback 2D --- */
         var readyMsg = data.is_ai
-          ? 'AI fitting generated with Gemini — drag to rotate. Add notes and regenerate anytime.'
+          ? 'AI fitting preview generated — drag to rotate. Add notes and regenerate anytime.'
           : 'No AI image was returned. Please try again.';
 
         initThree();

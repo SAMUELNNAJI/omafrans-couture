@@ -529,14 +529,17 @@ def _generate_with_pollinations(
     encoded = urllib.parse.quote(full_prompt)
 
     seed = random.randint(1000, 999999)
-    url = f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}"
+    endpoints = [
+        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}",
+        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}",
+    ]
     headers = {
         "Authorization": f"Bearer {api_key}",
         "User-Agent": "OmafransCouture/1.0",
     }
 
     last_error = None
-    for attempt in range(2):
+    for url in endpoints:
         try:
             resp = requests.get(url, headers=headers, timeout=75)
             if resp.status_code == 200 and resp.content and resp.content.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
@@ -554,10 +557,10 @@ def _generate_with_pollinations(
                 last_error = f"HTTP {resp.status_code}: {resp.text[:120]}"
         except requests.Timeout as exc:
             last_error = "Pollinations request timed out."
-            logger.warning("Pollinations timeout attempt %d: %s", attempt + 1, exc)
+            logger.warning("Pollinations timeout for %s: %s", url, exc)
         except requests.RequestException as exc:
             last_error = str(exc)
-            logger.warning("Pollinations attempt %d failed: %s", attempt + 1, exc)
+            logger.warning("Pollinations request failed for %s: %s", url, exc)
 
     raise ImageGenerationError(f"Pollinations generation failed: {last_error or 'No response'}")
 
