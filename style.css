@@ -52,7 +52,7 @@ body.menu-open{overflow:hidden}
 /* ---------- HERO ---------- */
 .hero{position:relative;height:100vh;height:100svh;min-height:520px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center;text-align:center;background:#000 url(hero.jpg) center/cover no-repeat}
 .hero video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
-.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,.05) 55%,rgba(0,0,0,.35));z-index:1}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.86),rgba(0,0,0,.22) 55%,rgba(0,0,0,.5));z-index:1}
 .hero-content{position:relative;z-index:2;width:100%;padding:0 4vw clamp(48px,9vh,90px)}
 h1{font-family:'Unbounded',sans-serif;font-weight:900;text-transform:uppercase;line-height:.95;letter-spacing:-.02em;font-size:11.2vw;color:#fff}
 h1 .word{display:block;white-space:nowrap}
