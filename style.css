@@ -66,6 +66,9 @@ h1 .ch{display:inline-block;opacity:0;transform:translateY(60px) scaleY(1.4);fil
 @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 .cta{display:inline-block;margin-top:22px;padding:13px 30px;background:var(--acid);color:#000;font-family:'Unbounded',sans-serif;font-weight:900;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;border-radius:99px;opacity:0;animation:fade 1s ease 2.3s forwards;transition:transform .25s,background .25s}
 .cta:hover{background:var(--pink);transform:scale(1.08) rotate(-2deg)}
+@media(max-width:768px){
+  .hero::after{background:linear-gradient(to top,rgba(0,0,0,.95),rgba(0,0,0,.6) 55%,rgba(0,0,0,.75))}
+}
 
 /* ---------- COLLECTIONS ---------- */
 .collections{position:relative;padding:clamp(70px,8vw,110px) clamp(18px,5vw,70px) 80px;overflow:hidden;
