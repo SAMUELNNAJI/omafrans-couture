@@ -271,11 +271,22 @@ a.c-card:hover{transform:translateY(-4px);border-color:var(--acid)}
 .side{grid-area:side}
 .stage{grid-area:stage;position:relative;min-height:380px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:radial-gradient(ellipse at 50% 55%,rgba(120,70,30,.35),transparent 65%),rgba(8,6,12,.7);overflow:hidden}
 .dock{grid-area:dock}
-.file-box{aspect-ratio:1;border:1px dashed rgba(255,255,255,.25);border-radius:4px;background:#05040a;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.file-box img{max-width:100%;max-height:100%;object-fit:contain}
-.replace{display:block;margin:10px 0 18px;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.6);cursor:pointer}
-.replace input{position:absolute;opacity:0;width:1px;height:1px}
-.replace:hover,.replace:focus-within{color:var(--acid)}
+.upload-section{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.file-box{position:relative;aspect-ratio:1;border:2px dashed rgba(212,255,0,.4);border-radius:8px;background:#05040a;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .2s}
+.file-box:hover,.file-box.drag-hover{border-color:var(--acid);box-shadow:0 0 24px rgba(212,255,0,.22);transform:scale(1.02)}
+.file-box img{max-width:100%;max-height:100%;object-fit:contain;transition:opacity .2s}
+.file-box-badge{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;gap:5px;padding:5px 12px;background:rgba(8,6,12,.88);border:1px solid rgba(212,255,0,.5);border-radius:999px;font-size:.64rem;font-weight:700;letter-spacing:.05em;color:#fff;text-transform:uppercase;pointer-events:none;backdrop-filter:blur(6px);opacity:0;transition:opacity .2s}
+.file-box:hover .file-box-badge,.file-box:focus-visible .file-box-badge{opacity:1}
+.file-box-badge svg{width:13px;height:13px;stroke:var(--acid)}
+.room-help{margin:0 0 10px;color:rgba(255,255,255,.55);font-size:.66rem;line-height:1.55}
+
+.replace.upload-btn-cta{display:flex;align-items:center;justify-content:center;gap:11px;margin:2px 0 6px;padding:12px 14px;min-height:50px;background:var(--acid);color:#080808;border-radius:8px;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(212,255,0,.35);transition:background .2s,transform .2s,box-shadow .2s;text-decoration:none}
+.replace.upload-btn-cta:hover,.replace.upload-btn-cta:focus-within{background:#e7ff4d;transform:translateY(-2px);box-shadow:0 10px 28px rgba(212,255,0,.5);color:#000}
+.replace.upload-btn-cta svg{width:22px;height:22px;flex:none;stroke:#080808}
+.upload-btn-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.2}
+.upload-btn-text strong{font-family:'Unbounded',sans-serif;font-weight:900;font-size:.76rem;letter-spacing:.04em;text-transform:uppercase;color:#080808}
+.upload-btn-text small{font-size:.62rem;font-weight:500;color:rgba(0,0,0,.75);letter-spacing:0}
+.replace input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .panel-title{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:10px}
 .fabrics{display:flex;flex-direction:column;gap:6px}
 .fabric{height:40px;border:1px solid transparent;border-radius:4px;color:#fff;font:inherit;font-size:.66rem;text-align:left;padding:0 10px;cursor:pointer;text-shadow:0 1px 3px rgba(0,0,0,.8);transition:.25s}

@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import logging
 
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -9,6 +10,8 @@ from django.views.decorators.http import require_POST
 
 from .models import Collection
 from .dress_generator import ImageGenerationError, generate_try_on
+
+logger = logging.getLogger(__name__)
 
 
 def home(request):

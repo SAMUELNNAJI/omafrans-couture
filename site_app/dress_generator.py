@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import random
+import socket
 from typing import Tuple
 import urllib.parse
 
@@ -21,6 +22,22 @@ import requests
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 logger = logging.getLogger(__name__)
+
+# Ensure resilient DNS resolution for Pollinations on all operating systems
+_SYSTEM_GETADDRINFO = socket.getaddrinfo
+
+def _resilient_getaddrinfo(host, port, *args, **kwargs):
+    try:
+        return _SYSTEM_GETADDRINFO(host, port, *args, **kwargs)
+    except socket.gaierror:
+        if "pollinations.ai" in host:
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.18.6.216", port)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.18.7.216", port)),
+            ]
+        raise
+
+socket.getaddrinfo = _resilient_getaddrinfo
 
 
 class ImageGenerationError(RuntimeError):
@@ -410,30 +427,101 @@ def _watermark(img: Image.Image, w: int, h: int) -> Image.Image:
 
 COLOUR_DESCRIPTIONS: dict[str, str] = {
     "none": "original garment colors",
-    "grayscale(1) brightness(1.9)": "ivory white",
-    "grayscale(1) brightness(1.2)": "stone gray",
-    "grayscale(1) brightness(.7)": "charcoal gray",
-    "grayscale(1) brightness(.35)": "midnight black",
-    "sepia(1) brightness(1.5) saturate(.8)": "warm sand beige",
-    "sepia(1) brightness(1.1) saturate(1.6)": "camel tan",
+    "grayscale(1) brightness(1.9)": "ivory cream white",
+    "grayscale(1) brightness(1.2)": "sophisticated stone gray",
+    "grayscale(1) brightness(.7)": "refined charcoal gray",
+    "grayscale(1) brightness(.35)": "sleek midnight onyx black",
+    "sepia(1) brightness(1.5) saturate(.8)": "warm desert sand beige",
+    "sepia(1) brightness(1.1) saturate(1.6)": "luxury camel tan",
     "sepia(1) hue-rotate(-20deg) saturate(2) brightness(.8)": "rust terracotta",
     "sepia(1) brightness(.6) saturate(1.2)": "rich chocolate brown",
-    "sepia(1) hue-rotate(30deg) brightness(.7) saturate(1.4)": "olive green",
-    "hue-rotate(-60deg) saturate(1.5)": "deep wine burgundy",
+    "sepia(1) hue-rotate(30deg) brightness(.7) saturate(1.4)": "tailored olive green",
+    "hue-rotate(-60deg) saturate(1.5)": "deep royal wine burgundy",
+    "hue-rotate(-60deg) saturate(1.8) brightness(.9)": "regal plum violet",
     "hue-rotate(60deg) saturate(1.6) brightness(.9)": "regal navy blue",
     "hue-rotate(150deg) saturate(1.4) brightness(.8)": "emerald forest green",
-    "hue-rotate(-30deg) saturate(2)": "crimson red",
+    "hue-rotate(-30deg) saturate(2)": "vibrant crimson red",
     "hue-rotate(90deg) saturate(1.2) brightness(1.2)": "sky blue",
     "hue-rotate(120deg) saturate(1.2)": "steel blue",
-    "hue-rotate(170deg) saturate(1.3)": "deep teal",
+    "hue-rotate(170deg) saturate(1.3)": "deep couture teal",
     "hue-rotate(40deg) saturate(1.1) brightness(1.3)": "lavender lilac",
     "hue-rotate(200deg) saturate(1.3) brightness(1.1)": "mint green",
 }
 
+SIZE_PROPORTIONS: dict[str, str] = {
+    "XS": "petite, slender XS model proportions (Bust 80cm, Waist 62cm, Hips 86cm) with narrow waist and sleek fit",
+    "S":  "lean, toned S model proportions (Bust 85cm, Waist 67cm, Hips 91cm) with slender physique",
+    "M":  "classic couture M model proportions (Bust 90cm, Waist 72cm, Hips 96cm) with balanced natural curves",
+    "L":  "curvaceous L model proportions (Bust 96cm, Waist 78cm, Hips 102cm) with fuller bust and feminine hips",
+    "XL": "full-figured XL model proportions (Bust 103cm, Waist 85cm, Hips 109cm) with voluptuous curves and fuller body shape",
+    "2XL":"plus-size 2XL model proportions (Bust 111cm, Waist 93cm, Hips 117cm) with rich full-figured curves and generous natural shape",
+}
+
+
+def _analyze_garment_vision(dress_bytes: bytes, api_key: str) -> str:
+    """
+    Use multimodal vision to inspect the uploaded cloth and extract exact couture details:
+    garment type, exact color/shade, collar/lapels, sleeves, pockets, buttons, cut, and silhouette.
+    """
+    if not api_key:
+        return ""
+    try:
+        # Resize to thumbnail to ensure ultra-fast vision transmission
+        with Image.open(io.BytesIO(dress_bytes)) as im:
+            im = im.convert("RGB")
+            im.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=85)
+            b64_img = base64.b64encode(buf.getvalue()).decode("ascii")
+
+        prompt = (
+            "Describe every item in this clothing ensemble (including top, skirt, coat, dress, trousers, hat, footwear, or accessories shown) "
+            "in exact couture fashion terms (garment types, exact colors and patterns, lapels or collar, neckline, sleeves, buttons or closures, length, and silhouette) "
+            "in 2 concise, descriptive sentences for an AI fashion generator to dress a real living female model in this exact outfit."
+        )
+
+        resp = requests.post(
+            "https://gen.pollinations.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "openai/gpt-5.4-nano",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"},
+                            },
+                        ],
+                    }
+                ],
+                "max_tokens": 120,
+            },
+            timeout=18,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get("choices", [])
+            if choices:
+                desc = choices[0].get("message", {}).get("content", "").strip()
+                if desc and len(desc) > 20:
+                    logger.info("Vision analyzed uploaded cloth: %s", desc[:100])
+                    return desc
+        logger.warning("Vision analysis returned status %s: %s", resp.status_code, resp.text[:120])
+    except Exception as exc:
+        logger.warning("Vision analysis exception: %s", exc)
+
+    return ""
+
 
 def _detect_garment_colors(dress_bytes: bytes) -> tuple[str, str]:
     """
-    Detect approximate garment silhouette and dominant color from uploaded image bytes.
+    Detect approximate garment silhouette and dominant color from uploaded image bytes (fallback).
     """
     try:
         with Image.open(io.BytesIO(dress_bytes)) as img:
@@ -498,7 +586,8 @@ def _generate_with_pollinations(
     notes: str,
 ) -> bytes:
     """
-    Generate a photorealistic, human-worn fashion photograph using Pollinations.ai (Flux).
+    Generate a photorealistic, human-worn fashion photograph using Pollinations.ai (Flux)
+    by faithfully recreating the exact uploaded garment on a real human model.
     """
     api_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
     if not api_key:
@@ -506,32 +595,56 @@ def _generate_with_pollinations(
             "Pollinations is not configured. Set POLLINATIONS_API_KEY in .env and restart the server."
         )
 
-    silhouette, detected_color = _detect_garment_colors(dress_bytes)
-    chosen_color = COLOUR_DESCRIPTIONS.get(colour_filter, detected_color)
-    if colour_filter == "none":
-        chosen_color = detected_color
+    # 1. Vision inspection: extract the exact cloth details (collar, buttons, lapels, sleeves, pockets, cut)
+    garment_detail = _analyze_garment_vision(dress_bytes, api_key)
+
+    if not garment_detail:
+        silhouette, detected_color = _detect_garment_colors(dress_bytes)
+        garment_detail = f"bespoke {detected_color} {silhouette} with tailored couture stitching and crisp structure"
+
+    # 2. Body sizing description
+    size_key = size.upper()
+    body_proportion = SIZE_PROPORTIONS.get(
+        size_key,
+        f"tailored to size {size_key} model body proportions with natural feminine curves"
+    )
+
+    # 3. Color handling
+    chosen_color = COLOUR_DESCRIPTIONS.get(colour_filter, "")
+    if colour_filter != "none" and chosen_color:
+        color_instruction = (
+            f"The garment is rendered in a {chosen_color} color tone, "
+            f"while preserving every exact cut, lapel, seam, button, pocket, and design feature of the original garment."
+        )
+    else:
+        color_instruction = "Preserve the exact original colors, shades, and patterns of the garment faithfully."
 
     prompt_parts = [
-        "Photorealistic 8k luxury fashion editorial photograph for Omafrans Couture.",
-        "A single elegant adult female fashion model standing gracefully alone,",
-        "full body portrait from head to toe, showing natural realistic face looking towards the camera,",
-        "natural skin texture, realistic hands, styled hair, graceful posture.",
-        f"She is wearing a bespoke {chosen_color} {silhouette} made of {fabric}.",
-        f"Tailored to fit size {size} with realistic fabric drape, tailored folds, and luxury couture stitching.",
+        f"Editorial full-length luxury fashion photograph of a beautiful realistic female human model wearing: {garment_detail}.",
+        "She is an authentic living adult woman with gorgeous expressive face looking directly into the camera, styled hair, realistic skin texture with natural pores, realistic human hands and fingers, standing full-body from head to toe.",
+        "The model is physically wearing the complete clothing ensemble naturally on her human body.",
+        "ABSOLUTELY NO MANNEQUINS, NO FLAT LAY, NO 2D CUTOUTS, NO GHOST MANNEQUINS, NO FLOATING CLOTHING — only a real living human woman wearing the clothes.",
+        f"{color_instruction}",
+        f"Fabric finish: {fabric} with authentic textile creases and couture stitching.",
+        f"Model body shape: {body_proportion}.",
     ]
     if notes:
-        prompt_parts.append(f"Custom design notes: {notes}.")
+        prompt_parts.append(f"Custom adjustments: {notes}.")
+
     prompt_parts.append(
-        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting,"
-        "Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic, authentic human model in real life."
+        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting. "
+        "Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic."
     )
+
     full_prompt = " ".join(prompt_parts)
     encoded = urllib.parse.quote(full_prompt)
 
-    seed = random.randint(1000, 999999)
+    # Use seed derived from the cloth + size so that same size reproduces consistently,
+    # but changing size or color produces distinct tailored models!
+    seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}")) % 900000 + 10000
     endpoints = [
-        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}",
-        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed}&key={api_key}",
+        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base}&key={api_key}",
+        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base + 3}&key={api_key}",
     ]
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -541,7 +654,7 @@ def _generate_with_pollinations(
     last_error = None
     for url in endpoints:
         try:
-            resp = requests.get(url, headers=headers, timeout=75)
+            resp = requests.get(url, headers=headers, timeout=60)
             if resp.status_code == 200 and resp.content and resp.content.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
                 with Image.open(io.BytesIO(resp.content)) as im:
                     im.load()

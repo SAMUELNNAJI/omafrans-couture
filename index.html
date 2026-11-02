@@ -133,11 +133,28 @@
 
     <div class="room-ui">
       <aside class="panel side">
-        <div class="file-box"><img id="roomThumb" src="about.png" alt="Selected dress"></div>
-        <label class="replace">
-          <input type="file" id="roomFile" accept="image/*">
-          <span>&#8635; Replace file</span>
-        </label>
+        <div class="upload-section">
+          <div class="file-box" id="fileBoxDrop" role="button" tabindex="0" aria-label="Upload garment image" title="Click to upload or drag &amp; drop a cloth photo">
+            <img id="roomThumb" src="about.png" alt="Selected dress">
+            <div class="file-box-badge always-visible">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M4 14v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2M10 3v10M6 7l4-4 4 4"/></svg>
+              <span>Click or Drop Cloth Photo</span>
+            </div>
+          </div>
+          <label class="replace upload-btn-cta prominent-upload-btn" for="roomFile" id="uploadBtn" title="Click to select and upload your cloth photo">
+            <input type="file" id="roomFile" accept="image/*">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span class="upload-btn-text">
+              <strong>UPLOAD CLOTH PHOTO</strong>
+              <small>Auto-generates AI fitting</small>
+            </span>
+          </label>
+          <p class="room-help">Upload any cloth &mdash; AI will automatically generate a model wearing your exact outfit.</p>
+        </div>
 
         <h3 class="panel-title">Body size</h3>
       <div class="room-sizes" id="roomSizes" role="group" aria-label="Body size">
@@ -204,7 +221,7 @@
             <button type="button" data-f="sepia(1) hue-rotate(30deg) brightness(.7) saturate(1.4)" aria-label="Olive"></button>
           </div>
           <div class="pal" data-p="deep" hidden>
-            <button type="button" data-f="none" aria-label="Plum"></button>
+            <button type="button" data-f="hue-rotate(-60deg) saturate(1.8) brightness(.9)" aria-label="Plum"></button>
             <button type="button" data-f="hue-rotate(-60deg) saturate(1.5)" aria-label="Wine"></button>
             <button type="button" data-f="hue-rotate(60deg) saturate(1.6) brightness(.9)" aria-label="Navy"></button>
             <button type="button" data-f="hue-rotate(150deg) saturate(1.4) brightness(.8)" aria-label="Forest"></button>
