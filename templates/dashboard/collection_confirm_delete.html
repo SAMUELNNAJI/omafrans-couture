@@ -1,0 +1,29 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete collection | Omafrans Couture</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+  <main class="dash-main dash-edit">
+    <a class="auth-back" href="{% url 'dashboard:index' %}">&larr; Back to dashboard</a>
+    <section class="dash-form-panel">
+      <span class="tag">// Remove collection</span>
+      <h1>Delete {{ object.name }}?</h1>
+      <p class="dash-note">This removes the item from the site. This action cannot be undone.</p>
+      <form method="post" class="dash-form-actions">
+        {% csrf_token %}
+        <button type="submit" class="dash-delete">Delete collection</button>
+        <a href="{% url 'dashboard:index' %}" class="dash-cancel">Cancel</a>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

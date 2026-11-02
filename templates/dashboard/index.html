@@ -1,0 +1,94 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard | Omafrans Couture</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+  <header class="dash-top">
+    <a class="logo" href="{% url 'site:home' %}" aria-label="Omafrans Couture home">
+      <svg viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path stroke="#d4ff00" stroke-width="2.2" d="M7 10h11M8.5 10v12M16.5 10v12M7 23h11M8.5 14h8M8.5 18h8"/>
+        <path stroke="#fff" stroke-width="1.8" d="m23 5-9 16"/><circle cx="23.8" cy="4.3" r="1.3" stroke="#fff" stroke-width="1.3"/>
+        <path stroke="#d4ff00" stroke-width="1.5" d="M23 6c5 3 6 7 3 10s-6 3-5 7"/>
+      </svg><span>OMAFRANS</span>
+    </a>
+    <div class="dash-user"><span>{{ request.user.get_username }}</span>
+      <form method="post" action="{% url 'auth:logout' %}">
+        {% csrf_token %}<button type="submit" class="dash-logout">Sign out</button>
+      </form>
+    </div>
+  </header>
+  <main class="dash-main">
+    <div class="dash-heading">
+      <div><span class="tag">// Admin dashboard</span><h1>Welcome back,<br>{{ request.user.get_username }}</h1>
+      <p>Manage your store and site administration from one place.</p></div>
+      <a href="{% url 'site:home' %}" class="dash-preview" target="_blank" rel="noopener">View website &#8599;</a>
+    </div>
+    {% if messages %}<div class="dash-messages">{% for message in messages %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
+    <section class="dash-stats" aria-label="Store overview">
+      <article><span>Collections</span><b>{{ collection_count }}</b><small>{{ active_collection_count }} visible on site</small></article>
+      <article><span>Active accounts</span><b>{{ active_users }}</b><small>Registered site accounts</small></article>
+      <article><span>Admin accounts</span><b>{{ staff_users }}</b><small>Administrative team</small></article>
+    </section>
+    <section class="dash-section">
+      <div class="dash-section-head"><span class="tag">// Store management</span>
+        <a href="{% url 'dashboard:collection-add' %}" class="dash-add">+ Add collection</a>
+      </div>
+      <div class="dash-collection-list">
+        {% for item in collections %}
+          <article class="dash-collection">
+            {% if item.image %}<img src="{{ item.image.url }}" alt="">{% else %}<div class="dash-image-placeholder">OC</div>{% endif %}
+            <div class="dash-collection-info"><b>{{ item.name }}</b><span>{{ item.get_category_display }} · Tone: {{ item.get_tone_display }} · {% if item.is_active %}Visible{% else %}Hidden{% endif %}</span></div>
+            <div class="dash-collection-actions">
+              <a href="{% url 'dashboard:collection-edit' item.pk %}">Edit</a>
+              <a href="{% url 'dashboard:collection-delete' item.pk %}">Delete</a>
+            </div>
+          </article>
+        {% empty %}
+          <p class="dash-empty">No collections yet. Add your first dress to show it on the website.</p>
+        {% endfor %}
+      </div>
+      {% if collections.has_other_pages %}
+        <nav class="dash-pagination" aria-label="Collection pages">
+          {% if collections.has_previous %}
+            <a class="dash-page-link" href="?page={{ collections.previous_page_number }}">Previous</a>
+          {% else %}
+            <span class="dash-page-link is-disabled" aria-disabled="true">Previous</span>
+          {% endif %}
+          <span class="dash-page-count">Page {{ collections.number }} of {{ collections.paginator.num_pages }}</span>
+          {% if collections.has_next %}
+            <a class="dash-page-link" href="?page={{ collections.next_page_number }}">Next</a>
+          {% else %}
+            <span class="dash-page-link is-disabled" aria-disabled="true">Next</span>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </section>
+    <section class="dash-section">
+      <div class="dash-section-head"><span class="tag">// Site contact settings</span>
+        <a href="{% url 'dashboard:settings' %}" class="dash-add">Edit settings</a>
+      </div>
+      <div class="dash-contact-settings">
+        <div><small>Phone / WhatsApp</small><b>{{ site_settings.phone_number }}</b></div>
+        <div><small>Email</small><b>{{ site_settings.email|default:"Not set" }}</b></div>
+      </div>
+    </section>
+    <section class="dash-section">
+      <span class="tag">// Quick links</span>
+      <div class="dash-actions">
+        <a href="{% url 'admin:auth_user_changelist' %}"><i>01</i><b>Manage users</b><span>Create accounts and assign staff access &#8599;</span></a>
+        <a href="{% url 'site:collection' %}"><i>02</i><b>View collections</b><span>Preview the live collection page &#8599;</span></a>
+      </div>
+    </section>
+    <p class="dash-note">Create additional administrator accounts from the admin console. Only superusers can access this dashboard.</p>
+  </main>
+</body>
+</html>

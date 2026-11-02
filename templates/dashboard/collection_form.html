@@ -1,0 +1,39 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if object %}Edit{% else %}Add{% endif %} collection | Omafrans Couture</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+  <main class="dash-main dash-edit">
+    <a class="auth-back" href="{% url 'dashboard:index' %}">&larr; Back to dashboard</a>
+    <section class="dash-form-panel">
+      <span class="tag">// Collection management</span>
+      <h1>{% if object %}Edit collection{% else %}Add a collection{% endif %}</h1>
+      <p class="dash-note">Active collections appear on the public collection page. The home page shows the first eight active pieces.</p>
+      <form method="post" enctype="multipart/form-data" class="dash-edit-form">
+        {% csrf_token %}
+        {% for field in form %}
+          <label>{{ field.label }}{% if field.field.required %}<span aria-hidden="true">*</span>{% endif %}
+            {{ field }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+            {% for error in field.errors %}<small class="dash-error">{{ error }}</small>{% endfor %}
+          </label>
+        {% endfor %}
+        {% if form.non_field_errors %}<div class="dash-error">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="dash-form-actions">
+          <button type="submit" class="dash-add">Save collection</button>
+          <a href="{% url 'dashboard:index' %}" class="dash-cancel">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
