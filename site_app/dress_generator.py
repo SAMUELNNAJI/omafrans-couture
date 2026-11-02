@@ -461,32 +461,40 @@ SIZE_PROPORTIONS: dict[str, str] = {
 def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -> str:
     """
     Use multimodal vision to inspect the uploaded cloth and extract exact couture details.
-    When custom design notes are provided, synthesize the uploaded garment with the requested
-    modifications so the resulting description strictly implements the client's specifications.
+    Captures exact textile type (e.g. African wax print / Ankara, lace, silk), exact construction
+    (e.g. two-piece peplum top with matching pencil skirt, gown), exact primary and contrast colors,
+    and all distinctive tailoring details (collar, borders, sleeves, waist flounces, bow/knot).
     """
     if not api_key:
         return ""
     try:
-        # Resize to thumbnail to ensure ultra-fast vision transmission
+        # Resize to 384x384 at quality 75 for fast, ultra-reliable network transmission
         with Image.open(io.BytesIO(dress_bytes)) as im:
             im = im.convert("RGB")
-            im.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            im.thumbnail((384, 384), Image.Resampling.LANCZOS)
             buf = io.BytesIO()
-            im.save(buf, format="JPEG", quality=85)
+            im.save(buf, format="JPEG", quality=75)
             b64_img = base64.b64encode(buf.getvalue()).decode("ascii")
 
         if notes:
             prompt = (
-                f"A fashion client uploaded this garment image as reference and specified these exact custom design modifications: '{notes}'. "
-                "Describe the customized couture outfit in 2 concise sentences for an AI image generator to dress a real living female model. "
+                f"A fashion client uploaded this garment image as reference and specified these custom modifications: '{notes}'. "
+                "Inspect the uploaded clothing item on the mannequin or display. "
+                "Identify its textile type (e.g. African wax print / Ankara, lace, silk, velvet), construction (e.g. two-piece peplum top with pencil skirt, dress), "
+                "exact colors, patterns, and tailoring details. "
+                f"Describe the customized couture outfit in 2 concise sentences for an AI image generator to dress a real living female model. "
                 f"The outfit must strictly follow the client's custom design requirements ('{notes}') as the primary design, "
-                "while drawing inspiration from the craftsmanship, luxury tailoring, and texture quality of the reference garment."
+                "while drawing authentic craftsmanship, fabric patterns, and tailoring details from the reference garment."
             )
         else:
             prompt = (
-                "Describe every item in this clothing ensemble (including top, skirt, coat, dress, trousers, hat, footwear, or accessories shown) "
-                "in exact couture fashion terms (garment types, exact colors and patterns, lapels or collar, neckline, sleeves, buttons or closures, length, and silhouette) "
-                "in 2 concise, descriptive sentences for an AI fashion generator to dress a real living female model in this exact outfit."
+                "You are an expert couture fashion stylist inspecting an uploaded garment on a dressmaker display or mannequin. "
+                "Analyze and state: "
+                "1. Cultural and textile style: state whether it is African wax print / Ankara fabric, lace, silk, velvet, brocade, etc. "
+                "2. Precise garment construction: two-piece peplum blouse with matching pencil skirt, evening dress, jumpsuit, etc. "
+                "3. Exact colors and trims: primary colors (e.g. royal blue) and contrast borders/piping (e.g. bright canary yellow). "
+                "4. Distinctive tailoring details: neckline (e.g. V-neck with contrast borders), waist (e.g. tiered peplum flounce hem, front bow knot), sleeves (e.g. puffed sleeves with cuffs), and skirt silhouette. "
+                "Write 2 concise, descriptive sentences specifying this EXACT outfit so an AI image generator creates a real living woman wearing this identical garment."
             )
 
         resp = requests.post(
@@ -509,9 +517,9 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -
                         ],
                     }
                 ],
-                "max_tokens": 120,
+                "max_tokens": 160,
             },
-            timeout=18,
+            timeout=30,
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -649,16 +657,17 @@ def _generate_with_pollinations(
         custom_directive = ""
 
     prompt_parts = [
-        f"Editorial full-length luxury fashion photograph of a beautiful realistic female human model wearing {garment_intro}",
+        f"Editorial full-length luxury fashion photograph of an elegant realistic couture female model for Omafrans Couture wearing {garment_intro}",
     ]
     if custom_directive:
         prompt_parts.append(custom_directive)
 
     prompt_parts.extend([
-        "She is an authentic living adult woman with gorgeous expressive face looking directly into the camera, styled hair, realistic skin texture with natural pores, realistic human hands and fingers, standing full-body from head to toe.",
+        "She is an authentic living adult woman with gorgeous expressive face looking directly into the camera, styled hair, natural skin texture with realistic pores, realistic human hands and fingers, standing full-body from head to toe.",
         "The model is physically wearing the complete clothing ensemble naturally on her human body.",
         "ABSOLUTELY NO MANNEQUINS, NO FLAT LAY, NO 2D CUTOUTS, NO GHOST MANNEQUINS, NO FLOATING CLOTHING — only a real living human woman wearing the clothes.",
         f"{color_instruction}",
+        "Faithfully replicate every cut, fabric pattern, neckline border, sleeve cuff, and tailoring detail of the reference ensemble.",
         f"Fabric finish: {fabric} with authentic textile creases and couture stitching.",
         f"Model body shape: {body_proportion}.",
         "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting. Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic."
