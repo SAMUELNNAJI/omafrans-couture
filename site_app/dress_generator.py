@@ -458,10 +458,11 @@ SIZE_PROPORTIONS: dict[str, str] = {
 }
 
 
-def _analyze_garment_vision(dress_bytes: bytes, api_key: str) -> str:
+def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -> str:
     """
-    Use multimodal vision to inspect the uploaded cloth and extract exact couture details:
-    garment type, exact color/shade, collar/lapels, sleeves, pockets, buttons, cut, and silhouette.
+    Use multimodal vision to inspect the uploaded cloth and extract exact couture details.
+    When custom design notes are provided, synthesize the uploaded garment with the requested
+    modifications so the resulting description strictly implements the client's specifications.
     """
     if not api_key:
         return ""
@@ -474,11 +475,19 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str) -> str:
             im.save(buf, format="JPEG", quality=85)
             b64_img = base64.b64encode(buf.getvalue()).decode("ascii")
 
-        prompt = (
-            "Describe every item in this clothing ensemble (including top, skirt, coat, dress, trousers, hat, footwear, or accessories shown) "
-            "in exact couture fashion terms (garment types, exact colors and patterns, lapels or collar, neckline, sleeves, buttons or closures, length, and silhouette) "
-            "in 2 concise, descriptive sentences for an AI fashion generator to dress a real living female model in this exact outfit."
-        )
+        if notes:
+            prompt = (
+                f"A fashion client uploaded this garment image as reference and specified these exact custom design modifications: '{notes}'. "
+                "Describe the customized couture outfit in 2 concise sentences for an AI image generator to dress a real living female model. "
+                f"The outfit must strictly follow the client's custom design requirements ('{notes}') as the primary design, "
+                "while drawing inspiration from the craftsmanship, luxury tailoring, and texture quality of the reference garment."
+            )
+        else:
+            prompt = (
+                "Describe every item in this clothing ensemble (including top, skirt, coat, dress, trousers, hat, footwear, or accessories shown) "
+                "in exact couture fashion terms (garment types, exact colors and patterns, lapels or collar, neckline, sleeves, buttons or closures, length, and silhouette) "
+                "in 2 concise, descriptive sentences for an AI fashion generator to dress a real living female model in this exact outfit."
+            )
 
         resp = requests.post(
             "https://gen.pollinations.ai/v1/chat/completions",
@@ -587,7 +596,8 @@ def _generate_with_pollinations(
 ) -> bytes:
     """
     Generate a photorealistic, human-worn fashion photograph using Pollinations.ai (Flux)
-    by faithfully recreating the exact uploaded garment on a real human model.
+    by faithfully recreating the exact uploaded garment on a real human model or customizing it
+    strictly according to the client's design notes.
     """
     api_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
     if not api_key:
@@ -595,12 +605,15 @@ def _generate_with_pollinations(
             "Pollinations is not configured. Set POLLINATIONS_API_KEY in .env and restart the server."
         )
 
-    # 1. Vision inspection: extract the exact cloth details (collar, buttons, lapels, sleeves, pockets, cut)
-    garment_detail = _analyze_garment_vision(dress_bytes, api_key)
+    # 1. Vision inspection: pass notes so the vision analysis adapts the uploaded reference to user specifications
+    garment_detail = _analyze_garment_vision(dress_bytes, api_key, notes=notes)
 
     if not garment_detail:
-        silhouette, detected_color = _detect_garment_colors(dress_bytes)
-        garment_detail = f"bespoke {detected_color} {silhouette} with tailored couture stitching and crisp structure"
+        if notes:
+            garment_detail = f"custom couture outfit strictly featuring: {notes}"
+        else:
+            silhouette, detected_color = _detect_garment_colors(dress_bytes)
+            garment_detail = f"bespoke {detected_color} {silhouette} with tailored couture stitching and crisp structure"
 
     # 2. Body sizing description
     size_key = size.upper()
@@ -614,34 +627,48 @@ def _generate_with_pollinations(
     if colour_filter != "none" and chosen_color:
         color_instruction = (
             f"The garment is rendered in a {chosen_color} color tone, "
-            f"while preserving every exact cut, lapel, seam, button, pocket, and design feature of the original garment."
+            f"while preserving all custom tailored cuts, seams, buttons, and design features."
         )
+    elif notes:
+        color_instruction = f"Strictly apply all colors, textures, and details requested by the client: '{notes}'."
     else:
         color_instruction = "Preserve the exact original colors, shades, and patterns of the garment faithfully."
 
+    # 4. Integrate User Description / Design Notes with supreme priority
+    if notes:
+        garment_intro = (
+            f"a bespoke couture outfit strictly incorporating these client design requirements: '{notes}'. "
+            f"Outfit details: {garment_detail}."
+        )
+        custom_directive = (
+            f"MANDATORY CLIENT SPECIFICATION: Strictly execute all requested details from '{notes}'. "
+            f"Every specified cut, neckline, sleeve style, length, belt, color, and embellishment must be clearly visible on the garment."
+        )
+    else:
+        garment_intro = f"this exact outfit: {garment_detail}."
+        custom_directive = ""
+
     prompt_parts = [
-        f"Editorial full-length luxury fashion photograph of a beautiful realistic female human model wearing: {garment_detail}.",
+        f"Editorial full-length luxury fashion photograph of a beautiful realistic female human model wearing {garment_intro}",
+    ]
+    if custom_directive:
+        prompt_parts.append(custom_directive)
+
+    prompt_parts.extend([
         "She is an authentic living adult woman with gorgeous expressive face looking directly into the camera, styled hair, realistic skin texture with natural pores, realistic human hands and fingers, standing full-body from head to toe.",
         "The model is physically wearing the complete clothing ensemble naturally on her human body.",
         "ABSOLUTELY NO MANNEQUINS, NO FLAT LAY, NO 2D CUTOUTS, NO GHOST MANNEQUINS, NO FLOATING CLOTHING — only a real living human woman wearing the clothes.",
         f"{color_instruction}",
         f"Fabric finish: {fabric} with authentic textile creases and couture stitching.",
         f"Model body shape: {body_proportion}.",
-    ]
-    if notes:
-        prompt_parts.append(f"Custom adjustments: {notes}.")
+        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting. Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic."
+    ])
 
-    prompt_parts.append(
-        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting. "
-        "Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic."
-    )
-
-    full_prompt = " ".join(prompt_parts)
+    full_prompt = " ".join(p for p in prompt_parts if p)
     encoded = urllib.parse.quote(full_prompt)
 
-    # Use seed derived from the cloth + size so that same size reproduces consistently,
-    # but changing size or color produces distinct tailored models!
-    seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}")) % 900000 + 10000
+    # Use seed derived from cloth + size + color + notes so any change in description immediately yields a fresh tailored generation!
+    seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}_{notes}")) % 900000 + 10000
     endpoints = [
         f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base}&key={api_key}",
         f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base + 3}&key={api_key}",
@@ -701,18 +728,27 @@ def _generate_with_gemini(
     elif dress_bytes.startswith(b"RIFF") and dress_bytes[8:12] == b"WEBP":
         mime = "image/webp"
 
+    if notes:
+        garment_intro = (
+            f"Show a real adult woman wearing a bespoke couture outfit customized strictly to these client design requirements: '{notes}'. "
+            f"Incorporate the luxury tailoring and craftsmanship of the uploaded garment while faithfully executing all custom changes: '{notes}'."
+        )
+    else:
+        garment_intro = (
+            "Show a real adult woman wearing that exact garment naturally on her body. "
+            "Recreate the garment faithfully: preserve its colour, cut, silhouette, fabric appearance, pattern, and visible details."
+        )
+
     prompt = (
-        "Create one photorealistic, full-length luxury fashion photograph for "
-        "Omafrans Couture. Show a real adult woman wearing that exact garment naturally on her "
-        "body. Recreate the garment faithfully: preserve its colour, "
-        "cut, silhouette, fabric appearance, pattern, and visible details. "
+        "Create one photorealistic, full-length luxury fashion photograph for Omafrans Couture. "
+        f"{garment_intro} "
         "Show one person from head to toe, with a visible natural face and realistic human anatomy, "
         "hands, proportions, skin, and fabric folds. The person must be the "
         "main subject and the garment must be clearly visible. Compose a "
         "single vertical 3:4 editorial photograph in a refined couture fitting "
         "room with soft, realistic studio lighting. "
         f"Selected size: {size}. Fabric preference: {fabric}. "
-        f"{f'User design notes: {notes}. ' if notes else ''}"
+        f"{f'Mandatory client specifications: {notes}.' if notes else ''}"
     )
 
     model = "gemini-3.1-flash-image"

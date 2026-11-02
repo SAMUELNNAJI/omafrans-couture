@@ -261,13 +261,14 @@
           </div>
         </div>
         <div class="room-refine">
-          <label for="designNotes">Add design notes / describe changes</label>
-          <textarea id="designNotes" rows="2" maxlength="240" placeholder="e.g. longer sleeves, higher neckline, more fitted waist, lace trim…"></textarea>
+          <label for="designNotes">Custom design / describe changes <span style="font-weight:normal;color:var(--muted);font-size:0.78rem;">(AI tailors the cloth to your description)</span></label>
+          <textarea id="designNotes" rows="3" maxlength="500" placeholder="e.g. make it sleeveless, knee-length red cocktail dress, gold embroidery on collar, slit on side…"></textarea>
+          <span class="notes-hint" style="display:block;font-size:0.74rem;color:#d8b168;margin-top:4px;margin-bottom:8px;line-height:1.35;">✨ Type custom changes or style requests — our AI faithfully incorporates your description into the generated design.</span>
           <button type="button" class="room-generate" id="generateLook" disabled>
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.64 5.64l1.41 1.41M13 13l1.41 1.41"/><circle cx="10" cy="10" r="3"/></svg>
-            Generate preview
+            Generate custom look
           </button>
-          <p class="room-status" id="roomStatus" role="status" aria-live="polite">This is a visual simulation, not an AI-generated fitting.</p>
+          <p class="room-status" id="roomStatus" role="status" aria-live="polite">Upload a cloth photo or type custom notes to preview your AI fitting.</p>
         </div>
         <div class="dock-foot">
           <div class="tools">

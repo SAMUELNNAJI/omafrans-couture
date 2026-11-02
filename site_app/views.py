@@ -66,7 +66,7 @@ def dressing_room_generate(request):
     size   = request.POST.get("size", "M").strip().upper()
     fabric = request.POST.get("fabric", "Premium Gabardine").strip()
     colour = request.POST.get("colour", "none").strip()
-    notes  = request.POST.get("notes", "").strip()[:240]
+    notes  = request.POST.get("notes", "").strip()[:500]
 
     try:
         dress_bytes = dress_file.read()

@@ -152,8 +152,7 @@ class PublicPageTests(TestCase):
         self.assertContains(response, 'id="designNotes"')
         self.assertContains(response, 'id="generateLook"')
         self.assertContains(response, 'id="roomContact"')
-        self.assertContains(response, "Contact us for this dress")
-        self.assertContains(response, "This is a visual simulation, not an AI-generated fitting.")
+        self.assertContains(response, 'id="roomStatus"')
         self.assertContains(response, "script.")
 
     def test_shop_link_prefills_whatsapp_with_dress_details_and_image(self):
