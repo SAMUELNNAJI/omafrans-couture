@@ -147,21 +147,18 @@ class AIGenerationTests(TestCase):
             )
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "gemini-key", "POLLINATIONS_API_KEY": "pollinations-key"})
-    @patch("site_app.dress_generator._generate_with_pollinations")
     @patch("site_app.dress_generator._generate_with_gemini")
     @patch("site_app.dress_generator._generate_pillow_composite")
-    def test_pollinations_is_used_only_after_gemini_fails(
-        self, pillow_fallback, gemini, pollinations
+    def test_gemini_failure_does_not_show_generic_fallback(
+        self, pillow_fallback, gemini
     ):
         gemini.side_effect = ImageGenerationError("Gemini limit reached.")
-        pollinations.side_effect = ImageGenerationError("Pollinations limit reached.")
         from .dress_generator import generate_try_on
 
         with self.assertRaisesRegex(
-            ImageGenerationError, "Gemini reference-image try-on and Pollinations fallback both failed"
+            ImageGenerationError, "generic Pollinations fallback was disabled"
         ):
             generate_try_on(dress_bytes=b"image")
-        pollinations.assert_called_once()
         gemini.assert_called_once()
         pillow_fallback.assert_not_called()
 
