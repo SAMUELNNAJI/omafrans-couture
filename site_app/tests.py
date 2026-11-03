@@ -19,14 +19,16 @@ from .models import Collection, SiteSettings
 class AIGenerationTests(TestCase):
     @patch.dict("os.environ", {"POLLINATIONS_API_KEY": "test-key", "GEMINI_API_KEY": ""})
     @patch("site_app.dress_generator._analyze_garment_vision", return_value="blue Ankara gown with gold trim")
-    @patch("site_app.dress_generator.requests.get")
-    def test_requests_pollinations_flux_realistic_image(self, mock_get, mock_analyze):
+    @patch("site_app.dress_generator.requests.Session")
+    def test_requests_pollinations_flux_realistic_image(self, mock_session, mock_analyze):
         image_bytes = BytesIO()
         Image.new("RGB", (10, 10), color="purple").save(image_bytes, format="PNG")
         mock_response = BytesIO()
         Image.new("RGB", (20, 20), color="blue").save(mock_response, format="PNG")
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.content = mock_response.getvalue()
+        response = mock_session.return_value.__enter__.return_value.post.return_value
+        response.status_code = 200
+        response.content = mock_response.getvalue()
+        response.headers = {"Content-Type": "image/png"}
 
         from .dress_generator import generate_try_on
 
@@ -40,36 +42,37 @@ class AIGenerationTests(TestCase):
 
         self.assertTrue(is_ai)
         self.assertIsNotNone(result)
-        self.assertTrue(mock_get.called)
-        called_url = mock_get.call_args[0][0]
-        self.assertIn("model=flux", called_url)
-        self.assertEqual(mock_get.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+        post = mock_session.return_value.__enter__.return_value.post
+        post.assert_called_once()
+        self.assertEqual(post.call_args.args[0], "https://image.pollinations.ai/generate")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "gemini-key", "POLLINATIONS_API_KEY": "pollinations-key"})
     @patch("site_app.dress_generator._generate_with_gemini")
     @patch("site_app.dress_generator._generate_with_pollinations")
-    def test_pollinations_is_preferred_and_gemini_is_not_called(
+    def test_gemini_is_preferred_for_reference_image_try_on(
         self, pollinations, gemini
     ):
-        pollinations.return_value = b"pollinations-image"
+        gemini.return_value = b"gemini-image"
         from .dress_generator import generate_try_on
 
         result, is_ai = generate_try_on(dress_bytes=b"uploaded-image")
 
-        self.assertEqual(result, b"pollinations-image")
+        self.assertEqual(result, b"gemini-image")
         self.assertTrue(is_ai)
-        pollinations.assert_called_once()
-        gemini.assert_not_called()
+        gemini.assert_called_once()
+        pollinations.assert_not_called()
 
     @patch.dict("os.environ", {"POLLINATIONS_API_KEY": "test-key", "GEMINI_API_KEY": ""})
     @patch("site_app.dress_generator._analyze_garment_vision", return_value="blue Ankara gown")
-    @patch("site_app.dress_generator.requests.get")
-    def test_pollinations_webp_response_is_converted_to_png(self, mock_get, _mock_analyze):
+    @patch("site_app.dress_generator.requests.Session")
+    def test_pollinations_webp_response_is_converted_to_png(self, mock_session, _mock_analyze):
         image_bytes = BytesIO()
         Image.new("RGB", (20, 20), color="blue").save(image_bytes, format="WEBP")
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.content = image_bytes.getvalue()
-        mock_get.return_value.headers = {"Content-Type": "image/webp"}
+        response = mock_session.return_value.__enter__.return_value.post.return_value
+        response.status_code = 200
+        response.content = image_bytes.getvalue()
+        response.headers = {"Content-Type": "image/webp"}
 
         from .dress_generator import generate_try_on
 
@@ -77,7 +80,7 @@ class AIGenerationTests(TestCase):
 
         self.assertTrue(is_ai)
         self.assertTrue(result.startswith(b"\x89PNG"))
-        mock_get.assert_called_once()
+        mock_session.return_value.__enter__.return_value.post.assert_called_once()
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "test-key", "POLLINATIONS_API_KEY": ""})
     @patch("site_app.dress_generator.requests.post")
@@ -119,7 +122,7 @@ class AIGenerationTests(TestCase):
         )
         self.assertEqual(payload["generationConfig"]["imageConfig"]["aspectRatio"], "3:4")
         prompt = payload["contents"][0]["parts"][1]["text"]
-        self.assertIn("rear view", prompt)
+        self.assertIn("rear view", prompt.lower())
         self.assertIn("regal navy blue", prompt)
         self.assertIn("garment only", prompt)
         self.assertIn("Premium Satin", prompt)
@@ -147,18 +150,19 @@ class AIGenerationTests(TestCase):
     @patch("site_app.dress_generator._generate_with_pollinations")
     @patch("site_app.dress_generator._generate_with_gemini")
     @patch("site_app.dress_generator._generate_pillow_composite")
-    def test_pollinations_is_used_instead_of_gemini_when_both_are_configured(
+    def test_pollinations_is_used_only_after_gemini_fails(
         self, pillow_fallback, gemini, pollinations
     ):
+        gemini.side_effect = ImageGenerationError("Gemini limit reached.")
         pollinations.side_effect = ImageGenerationError("Pollinations limit reached.")
         from .dress_generator import generate_try_on
 
         with self.assertRaisesRegex(
-            ImageGenerationError, "Pollinations image generation failed: Pollinations limit reached"
+            ImageGenerationError, "Gemini reference-image try-on and Pollinations fallback both failed"
         ):
             generate_try_on(dress_bytes=b"image")
         pollinations.assert_called_once()
-        gemini.assert_not_called()
+        gemini.assert_called_once()
         pillow_fallback.assert_not_called()
 
     @patch("site_app.views.generate_try_on", return_value=(b"generated-image", True))

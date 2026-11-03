@@ -374,20 +374,27 @@ def _apply_dress(
     colour_filter: str,
 ) -> Image.Image:
     """
-    Composite the dress over the body using the geometry, apply fabric
-    texture tinting and colour overlay.
+    Composite the *actual uploaded dress* onto the body figure.
+
+    The dress is scaled to the shoulder width while preserving its aspect
+    ratio, so the print, colours and cut of the uploaded garment are kept
+    exactly — nothing is invented by an AI generator. A subtle contour
+    shading is laid over the fabric so it looks like it sits on a curved
+    body rather than floating as a flat rectangle.
     """
     dx = geom["dress_x"]
     dy = geom["dress_y"]
     dw = geom["dress_w"]
-    dh = geom["dress_h"]
 
-    # --- resize dress to fit the body ---
-    dress = dress_img.convert("RGBA").resize(
-        (dw, dh), Image.LANCZOS
-    )
+    dress = dress_img.convert("RGBA")
+    dw_px = max(1, int(dw))
+    # Preserve aspect ratio: scale to shoulder width, height follows so the
+    # print is never stretched or squashed.
+    scale = dw_px / dress.width
+    new_h = max(1, int(dress.height * scale))
+    dress = dress.resize((dw_px, new_h), Image.LANCZOS)
 
-    # --- fabric brightness / contrast ---
+    # --- fabric brightness / contrast (kept subtle so colours stay exact) ---
     fab = FABRIC_FILTERS.get(fabric, (1.0, 1.0, 1.0, 1.0))
     r_f, g_f, b_f, br = fab
     r, g, b, a = dress.split()
@@ -396,22 +403,28 @@ def _apply_dress(
     b = b.point(lambda v: min(255, int(v * b_f * br)))
     dress = Image.merge("RGBA", (r, g, b, a))
 
-    # --- colour tint overlay ---
+    # --- colour tint overlay (light, preserves underlying print) ---
     tint = COLOUR_TINTS.get(colour_filter)
     if tint and tint[3] > 0:
         tr, tg, tb, ta = tint
+        ta = max(0, int(ta * 0.5))  # half-strength so the print still shows
         tint_layer = Image.new("RGBA", dress.size, (tr, tg, tb, ta))
         dress = Image.alpha_composite(dress, tint_layer)
 
-    # --- subtle dress shadow on body ---
-    shadow = Image.new("RGBA", body.size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rectangle(
-        [dx + 6, dy + 6, dx + dw + 6, dy + dh + 6],
-        fill=(0, 0, 0, 40)
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(8))
-    result = Image.alpha_composite(body, shadow)
-    result.paste(dress, (dx, dy), dress)
+    # --- body-contour shading: darker at sides, brighter down the centre ---
+    dw_, dh_ = dress.size
+    shade = Image.new("RGBA", (dw_, dh_), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    for x in range(dw_):
+        t = abs(x - dw_ // 2) / max(1, dw_ // 2)  # 0 at centre, 1 at edge
+        alpha = int(45 * t * t)  # stronger at edges = curved-body shading
+        sd.line([(x, 0), (x, dh_)], fill=(0, 0, 0, alpha))
+    dress = Image.alpha_composite(dress, shade)
+
+    # --- paste onto body at shoulder line, centred horizontally ---
+    px = dx + (int(dw) - dw_) // 2
+    result = body.convert("RGBA")
+    result.paste(dress, (px, dy), dress)
     return result
 
 
@@ -455,7 +468,7 @@ def _watermark(img: Image.Image, w: int, h: int) -> Image.Image:
 
 
 # ---------------------------------------------------------------------------
-# Public API & AI Generation (Pollinations.ai Flux & Gemini fallback)
+# Public API & AI Generation (Gemini reference-image try-on, Pollinations fallback)
 # ---------------------------------------------------------------------------
 
 COLOUR_DESCRIPTIONS: dict[str, str] = {
@@ -840,15 +853,16 @@ def _generate_with_gemini(
     elif dress_bytes.startswith(b"RIFF") and dress_bytes[8:12] == b"WEBP":
         mime = "image/webp"
 
+    garment_intro = (
+        "The uploaded image is the garment source of truth. Transfer the SAME physical garment from "
+        "that image onto the model; do not redesign, simplify, substitute, or stylize it. Preserve the "
+        "exact silhouette, panel layout, neckline, sleeves, peplum, skirt, seams, trim, border placement, "
+        "fabric print scale, motifs, colours, lettering, and visible imperfections. The mannequin, studio, "
+        "and background in the reference are not part of the outfit."
+    )
     if notes:
-        garment_intro = (
-            f"Show a real adult woman wearing a bespoke couture outfit customized strictly to these client design requirements: '{notes}'. "
-            f"Incorporate the luxury tailoring and craftsmanship of the uploaded garment while faithfully executing all custom changes: '{notes}'."
-        )
-    else:
-        garment_intro = (
-            "Show a real adult woman wearing that exact garment naturally on her body. "
-            "Recreate the garment faithfully: preserve its colour, cut, silhouette, fabric appearance, pattern, and visible details."
+        garment_intro += (
+            f" Apply only these requested alterations, and leave every unmentioned garment detail unchanged: '{notes}'."
         )
 
     view_direction = VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS["front"])
@@ -857,8 +871,7 @@ def _generate_with_gemini(
         "Full-body editorial fashion photograph of a real Black African woman, smooth dark skin, "
         "natural hair, relaxed confident model pose, weight shifted to one hip, standing in a bright "
         "upscale boutique fitting room with white walls and warm parquet floor, soft even studio lighting. "
-        "Use the uploaded garment image as the exact visual reference — recreate its construction, "
-        "silhouette, fabric, print motifs, colour blocks, trims, and embellishments faithfully. "
+        "This is a reference-image virtual try-on, not a fashion illustration or a new outfit design. "
         f"{garment_intro} "
         "Entire figure visible head to toe. Realistic human anatomy, natural hands and fingers, "
         f"realistic fabric folds and drape. {view_direction.capitalize()}. "
@@ -866,7 +879,8 @@ def _generate_with_gemini(
         f"Colour: {COLOUR_DESCRIPTIONS.get(colour_filter, 'original garment colours')}. "
         "Apply colour to garment only — do not change skin, hair, or background. "
         f"{f'Client modifications: {notes}.' if notes else ''} "
-        "Vogue West Africa editorial quality, photorealistic, no mannequin, no flat lay, no CGI."
+        "Vogue West Africa editorial quality, photorealistic, no mannequin, no flat lay, no CGI, "
+        "no cartoon, no painting, no altered print, no different garment."
     )
 
     model = "gemini-3.1-flash-image"
@@ -955,18 +969,9 @@ def generate_try_on(
     pollinations_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
-    # Try Pollinations first (preferred provider when configured).
-    if pollinations_key:
-        try:
-            generated_image = _generate_with_pollinations(
-                dress_bytes, size, fabric, colour_filter, notes, view
-            )
-            return generated_image, True
-        except ImageGenerationError as exc:
-            logger.warning("Pollinations failed, will try Gemini fallback: %s", exc)
-            # Fall through to Gemini when both keys are configured.
-
-    # Fall back to Gemini when Pollinations is unconfigured or failed.
+    # Gemini receives the garment pixels as part of the generation request.  It must be
+    # preferred for try-on: Pollinations only receives a textual garment description and
+    # therefore cannot preserve an exact wax print, trim placement, or construction.
     if gemini_key:
         try:
             generated_image = _generate_with_gemini(
@@ -974,13 +979,24 @@ def generate_try_on(
             )
             return generated_image, True
         except ImageGenerationError as exc:
-            logger.warning("Gemini failed: %s", exc)
-            if pollinations_key:
+            logger.warning("Gemini reference-image try-on failed; may use approximate fallback: %s", exc)
+
+    # Pollinations is kept only for installations without Gemini.  It is text-to-image
+    # and should be considered an approximate styling preview, never an exact try-on.
+    if pollinations_key:
+        try:
+            generated_image = _generate_with_pollinations(
+                dress_bytes, size, fabric, colour_filter, notes, view
+            )
+            return generated_image, True
+        except ImageGenerationError as exc:
+            logger.warning("Pollinations approximate fallback failed: %s", exc)
+            if gemini_key:
                 raise ImageGenerationError(
-                    f"Both Pollinations and Gemini generation failed. "
-                    f"Last Gemini error: {exc}"
+                    f"Gemini reference-image try-on and Pollinations fallback both failed. "
+                    f"Last fallback error: {exc}"
                 ) from exc
-            raise ImageGenerationError(f"Gemini image generation failed: {exc}") from exc
+            raise ImageGenerationError(f"Pollinations approximate preview failed: {exc}") from exc
 
     raise ImageGenerationError(
         "No AI generation key configured. Set POLLINATIONS_API_KEY or GEMINI_API_KEY."
