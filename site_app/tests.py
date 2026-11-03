@@ -18,8 +18,9 @@ from .models import Collection, SiteSettings
 
 class AIGenerationTests(TestCase):
     @patch.dict("os.environ", {"POLLINATIONS_API_KEY": "test-key", "GEMINI_API_KEY": ""})
+    @patch("site_app.dress_generator._analyze_garment_vision", return_value="blue Ankara gown with gold trim")
     @patch("site_app.dress_generator.requests.get")
-    def test_requests_pollinations_flux_realistic_image(self, mock_get):
+    def test_requests_pollinations_flux_realistic_image(self, mock_get, mock_analyze):
         image_bytes = BytesIO()
         Image.new("RGB", (10, 10), color="purple").save(image_bytes, format="PNG")
         mock_response = BytesIO()
@@ -42,7 +43,41 @@ class AIGenerationTests(TestCase):
         self.assertTrue(mock_get.called)
         called_url = mock_get.call_args[0][0]
         self.assertIn("model=flux", called_url)
-        self.assertIn("key=test-key", called_url)
+        self.assertEqual(mock_get.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "gemini-key", "POLLINATIONS_API_KEY": "pollinations-key"})
+    @patch("site_app.dress_generator._generate_with_gemini")
+    @patch("site_app.dress_generator._generate_with_pollinations")
+    def test_pollinations_is_preferred_and_gemini_is_not_called(
+        self, pollinations, gemini
+    ):
+        pollinations.return_value = b"pollinations-image"
+        from .dress_generator import generate_try_on
+
+        result, is_ai = generate_try_on(dress_bytes=b"uploaded-image")
+
+        self.assertEqual(result, b"pollinations-image")
+        self.assertTrue(is_ai)
+        pollinations.assert_called_once()
+        gemini.assert_not_called()
+
+    @patch.dict("os.environ", {"POLLINATIONS_API_KEY": "test-key", "GEMINI_API_KEY": ""})
+    @patch("site_app.dress_generator._analyze_garment_vision", return_value="blue Ankara gown")
+    @patch("site_app.dress_generator.requests.get")
+    def test_pollinations_webp_response_is_converted_to_png(self, mock_get, _mock_analyze):
+        image_bytes = BytesIO()
+        Image.new("RGB", (20, 20), color="blue").save(image_bytes, format="WEBP")
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.content = image_bytes.getvalue()
+        mock_get.return_value.headers = {"Content-Type": "image/webp"}
+
+        from .dress_generator import generate_try_on
+
+        result, is_ai = generate_try_on(dress_bytes=b"uploaded-image")
+
+        self.assertTrue(is_ai)
+        self.assertTrue(result.startswith(b"\x89PNG"))
+        mock_get.assert_called_once()
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "test-key", "POLLINATIONS_API_KEY": ""})
     @patch("site_app.dress_generator.requests.post")
@@ -71,8 +106,9 @@ class AIGenerationTests(TestCase):
             dress_bytes=image_bytes.getvalue(),
             size="M",
             fabric="Premium Satin",
-            colour_filter="none",
+            colour_filter="hue-rotate(60deg) saturate(1.6) brightness(.9)",
             notes="",
+            view="back",
         )
 
         self.assertIsNotNone(result)
@@ -82,6 +118,85 @@ class AIGenerationTests(TestCase):
             ["TEXT", "IMAGE"],
         )
         self.assertEqual(payload["generationConfig"]["imageConfig"]["aspectRatio"], "3:4")
+        prompt = payload["contents"][0]["parts"][1]["text"]
+        self.assertIn("rear view", prompt)
+        self.assertIn("regal navy blue", prompt)
+        self.assertIn("garment only", prompt)
+        self.assertIn("Premium Satin", prompt)
+        self.assertEqual(
+            payload["contents"][0]["parts"][0]["inlineData"]["data"],
+            base64.b64encode(image_bytes.getvalue()).decode(),
+        )
+
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})
+    @patch("site_app.dress_generator.requests.post")
+    def test_gemini_quota_error_is_actionable(self, post):
+        post.return_value.status_code = 429
+        from .dress_generator import _generate_with_gemini
+
+        with self.assertRaisesRegex(ImageGenerationError, "quota reached"):
+            _generate_with_gemini(
+                dress_bytes=b"image",
+                size="M",
+                fabric="Premium Gabardine",
+                colour_filter="none",
+                notes="",
+            )
+
+    @patch.dict("os.environ", {"GEMINI_API_KEY": "gemini-key", "POLLINATIONS_API_KEY": "pollinations-key"})
+    @patch("site_app.dress_generator._generate_with_pollinations")
+    @patch("site_app.dress_generator._generate_with_gemini")
+    @patch("site_app.dress_generator._generate_pillow_composite")
+    def test_pollinations_is_used_instead_of_gemini_when_both_are_configured(
+        self, pillow_fallback, gemini, pollinations
+    ):
+        pollinations.side_effect = ImageGenerationError("Pollinations limit reached.")
+        from .dress_generator import generate_try_on
+
+        with self.assertRaisesRegex(
+            ImageGenerationError, "Pollinations image generation failed: Pollinations limit reached"
+        ):
+            generate_try_on(dress_bytes=b"image")
+        pollinations.assert_called_once()
+        gemini.assert_not_called()
+        pillow_fallback.assert_not_called()
+
+    @patch("site_app.views.generate_try_on", return_value=(b"generated-image", True))
+    def test_generate_endpoint_passes_selected_angle(self, generate):
+        image_bytes = BytesIO()
+        Image.new("RGB", (4, 4), color="purple").save(image_bytes, format="PNG")
+        response = self.client.post(
+            reverse("site:dr_generate"),
+            {
+                "dress": SimpleUploadedFile(
+                    "dress.png", image_bytes.getvalue(), content_type="image/png"
+                ),
+                "view": "back",
+                "size": "5XL",
+                "fabric": "Premium Satin",
+                "colour": "none",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate.call_args.kwargs["view"], "back")
+        self.assertEqual(generate.call_args.kwargs["size"], "5XL")
+        self.assertEqual(generate.call_args.kwargs["fabric"], "Premium Satin")
+        self.assertEqual(generate.call_args.kwargs["colour_filter"], "none")
+
+    def test_generate_endpoint_rejects_unknown_angle(self):
+        image_bytes = BytesIO()
+        Image.new("RGB", (4, 4), color="purple").save(image_bytes, format="PNG")
+        response = self.client.post(
+            reverse("site:dr_generate"),
+            {
+                "dress": SimpleUploadedFile(
+                    "dress.png", image_bytes.getvalue(), content_type="image/png"
+                ),
+                "view": "diagonal",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "", "POLLINATIONS_API_KEY": ""})
     def test_missing_api_key_fails_instead_of_returning_compositor_image(self):

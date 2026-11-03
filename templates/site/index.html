@@ -154,20 +154,20 @@
               <small>Auto-generates AI fitting</small>
             </span>
           </label>
-          <p class="room-help">Upload any cloth &mdash; AI will automatically generate a model wearing your exact outfit.</p>
+          <p class="room-help">Upload a cloth photo to create an AI fitting. Generated details can vary from the original, so use the preview as a guide.</p>
         </div>
 
         <h3 class="panel-title">Body size</h3>
       <div class="room-sizes" id="roomSizes" role="group" aria-label="Body size">
-        <button type="button" data-m="Bust 80 · Waist 62 · Hips 86">XS</button>
-        <button type="button" data-m="Bust 85 · Waist 67 · Hips 91">S</button>
-        <button type="button" class="on" data-m="Bust 90 · Waist 72 · Hips 96">M</button>
-        <button type="button" data-m="Bust 96 · Waist 78 · Hips 102">L</button>
-        <button type="button" data-m="Bust 103 · Waist 85 · Hips 109">XL</button>
-        <button type="button" data-m="Bust 111 · Waist 93 · Hips 117">2XL</button>
-        <button type="button" data-m="Bust 120 · Waist 102 · Hips 126">3XL</button>
-        <button type="button" data-m="Bust 130 · Waist 112 · Hips 136">4XL</button>
-        <button type="button" data-m="Bust 142 · Waist 124 · Hips 148">5XL</button>
+        <button type="button" data-size="XS" data-m="Bust 80 · Waist 62 · Hips 86">XS</button>
+        <button type="button" data-size="S" data-m="Bust 85 · Waist 67 · Hips 91">S</button>
+        <button type="button" class="on" data-size="M" data-m="Bust 90 · Waist 72 · Hips 96">M</button>
+        <button type="button" data-size="L" data-m="Bust 96 · Waist 78 · Hips 102">L</button>
+        <button type="button" data-size="XL" data-m="Bust 103 · Waist 85 · Hips 109">XL</button>
+        <button type="button" data-size="2XL" data-m="Bust 111 · Waist 93 · Hips 117">2XL</button>
+        <button type="button" data-size="3XL" data-label="Chubby" data-m="Bust 120 · Waist 102 · Hips 126">3XL <small>Chubby</small></button>
+        <button type="button" data-size="4XL" data-label="Very fat" data-m="Bust 130 · Waist 112 · Hips 136">4XL <small>Very fat</small></button>
+        <button type="button" data-size="5XL" data-label="Very fat" data-m="Bust 142 · Waist 124 · Hips 148">5XL <small>Very fat</small></button>
       </div>
       <p class="size-info" id="sizeInfo">Size M · Bust 90 · Waist 72 · Hips 96 cm</p>
 
@@ -197,32 +197,34 @@
               <span></span><span></span><span></span><span></span>
             </div>
             <p id="roomLoadingText">Generating your fitting preview…</p>
-            <small>Our AI is fitting your exact cloth on a model. This takes a few seconds.</small>
+            <small>AI previews are generated estimates; garment details may differ from the source photo.</small>
           </div>
         </div>
 
         <div class="canvas" id="canvas">
-          <!-- 2-D figure (shown before generation) -->
+          <!-- Empty-state mannequin; the uploaded garment is shown only in the upload thumbnail. -->
           <div class="figure" id="figure">
             <div class="fit-box" id="fitBox">
               <svg class="body" viewBox="0 0 200 460" aria-hidden="true">
                 <circle cx="100" cy="34" r="22"/>
                 <path d="M112 56V70C134 74 150 80 154 94L148 152L138 156C136 168 134 178 134 190C140 204 148 212 148 226L142 340L138 450H118L114 340H86L82 450H62L58 340L52 226C52 212 60 204 66 190C66 178 64 168 62 156L52 152L46 94C50 80 66 74 88 70V56Z"/>
               </svg>
-              <img class="dress" id="roomDress" alt="Dress worn on the body" draggable="false" hidden>
             </div>
           </div>
+          <div class="room-preview-placeholder" id="roomPreviewPlaceholder" role="status">
+            Upload a cloth photo to generate your fitting preview.
+          </div>
 
-          <!-- Fallback 2D generated result image -->
+          <!-- Generated view image; each angle is generated from the uploaded garment reference. -->
           <img class="generated-preview" id="generatedPreview" alt="Fitting preview" draggable="false" hidden style="display: none;">
 
-          <!-- Three.js 3-D mount (shown after generation) -->
-          <div class="three-mount" id="threeMount" hidden style="display: none;" aria-label="3D dress preview — drag to rotate"></div>
-
-          <span class="room-drag-hint" id="roomDragHint" aria-hidden="true" hidden style="display: none;">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.9 4.9l2.1 2.1M13 13l2.1 2.1M4.9 15.1l2.1-2.1M13 7l2.1-2.1"/></svg>
-            Drag to rotate
-          </span>
+          <span class="room-view-caption">AI-generated angle previews · not live 3D</span>
+          <div class="room-views" id="roomViews" role="group" aria-label="Generated model view">
+            <button type="button" class="on" data-view="front" aria-pressed="true">Front</button>
+            <button type="button" data-view="left" aria-pressed="false">Left</button>
+            <button type="button" data-view="back" aria-pressed="false">Back</button>
+            <button type="button" data-view="right" aria-pressed="false">Right</button>
+          </div>
         </div>
       </div>
 
@@ -264,9 +266,9 @@
           </div>
         </div>
         <div class="room-refine">
-          <label for="designNotes">Custom design / describe changes <span style="font-weight:normal;color:var(--muted);font-size:0.78rem;">(AI tailors the cloth to your description)</span></label>
+          <label for="designNotes">Custom design / describe changes <span style="font-weight:normal;color:var(--muted);font-size:0.78rem;">(AI uses your photo as a reference; exact reproduction is not guaranteed)</span></label>
           <textarea id="designNotes" rows="3" maxlength="500" placeholder="e.g. make it sleeveless, knee-length red cocktail dress, gold embroidery on collar, slit on side…"></textarea>
-          <span class="notes-hint" style="display:block;font-size:0.74rem;color:#d8b168;margin-top:4px;margin-bottom:8px;line-height:1.35;">✨ Type custom changes or style requests — our AI faithfully incorporates your description into the generated design.</span>
+          <span class="notes-hint" style="display:block;font-size:0.74rem;color:#d8b168;margin-top:4px;margin-bottom:8px;line-height:1.35;">Describe custom changes or style requests; the generated result is an AI approximation of your reference.</span>
           <button type="button" class="room-generate" id="generateLook" disabled>
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.64 5.64l1.41 1.41M13 13l1.41 1.41"/><circle cx="10" cy="10" r="3"/></svg>
             Generate custom look
@@ -373,13 +375,6 @@
   <small>&copy; 2026 Omafrans Couture. All rights reserved.</small>
 </footer>
 <script src="{% static 'js/script.js' %}"></script>
-<!-- Three.js for 3-D dressing room viewer (offline local with CDN fallback) -->
-<script src="{% static 'js/three.min.js' %}"></script>
-<script>
-  if (!window.THREE) {
-    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
-  }
-</script>
 <script>
   /* Inject Django URL into JS so there is zero URL mismatch */
   window.DR_GENERATE_URL = "{% url 'site:dr_generate' %}";

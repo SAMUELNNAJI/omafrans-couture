@@ -49,9 +49,10 @@ def dressing_room_generate(request):
 
     Accepts multipart/form-data:
       - dress      : image file
-      - size       : XS / S / M / L / XL / 2XL  (default M)
+      - size       : XS through 5XL                 (default M)
       - fabric     : fabric label string           (default Premium Gabardine)
       - colour     : CSS filter string             (default none)
+      - view       : front / left / back / right   (default front)
       - notes      : free-text description         (optional)
 
     Returns JSON: { "image": "<base64 PNG>", "notes": "..." }
@@ -66,7 +67,10 @@ def dressing_room_generate(request):
     size   = request.POST.get("size", "M").strip().upper()
     fabric = request.POST.get("fabric", "Premium Gabardine").strip()
     colour = request.POST.get("colour", "none").strip()
+    view = request.POST.get("view", "front").strip().lower()
     notes  = request.POST.get("notes", "").strip()[:500]
+    if view not in {"front", "left", "back", "right"}:
+        return JsonResponse({"error": "Invalid view. Choose front, left, back, or right."}, status=400)
 
     try:
         dress_bytes = dress_file.read()
@@ -76,6 +80,7 @@ def dressing_room_generate(request):
             fabric=fabric,
             colour_filter=colour,
             notes=notes,
+            view=view,
         )
         if isinstance(gen_result, tuple):
             result_png, is_ai = gen_result

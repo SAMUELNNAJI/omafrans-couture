@@ -1,0 +1,5 @@
+Size M: (720, 960) wall_brightness=206 is_ai=False
+Size 3XL: (720, 960) wall_brightness=206 is_ai=False
+Size 4XL: (720, 960) wall_brightness=206 is_ai=False
+Size 5XL: (720, 960) wall_brightness=206 is_ai=False
+ALL PASSED — background is bright, all sizes work

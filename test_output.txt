@@ -1,0 +1,121 @@
+Creating test database for alias 'default'...
+
+.dressing_room_generate OK ù is_ai=True size=5XL bytes=15
+.Bad Request: /api/dressing-room/generate/
+...Pollinations failed, will try Gemini fallback: Pollinations limit reached.
+FPollinations Flux generated image successfully (format=JPEG).
+F.Pollinations attempt failed (seed 320305): HTTP 404: <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot POST /pro
+Pollinations attempt failed (seed 320306): HTTP 404: <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot POST /pro
+Pollinations attempt failed (seed 320307): HTTP 404: <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot POST /pro
+Pollinations failed, will try Gemini fallback: Pollinations generation failed: HTTP 404: <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Cannot POST /pro
+E.......Forbidden (Permission denied): /dashboard/
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\core\handlers\exception.py", line 56, in inner
+    response = get_response(request)
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\core\handlers\base.py", line 199, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\contrib\auth\mixins.py", line 74, in dispatch
+    return super().dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\contrib\auth\mixins.py", line 135, in dispatch
+    return self.handle_no_permission()
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\Desktop\omafrans couture\.venv\Lib\site-packages\django\contrib\auth\mixins.py", line 49, in handle_no_permission
+    raise PermissionDenied(self.get_permission_denied_message())
+django.core.exceptions.PermissionDenied
+.....
+======================================================================
+ERROR: test_requests_pollinations_flux_realistic_image (site_app.tests.AIGenerationTests.test_requests_pollinations_flux_realistic_image)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1905, in _inner
+    return f(*args, **kw)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1439, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\ADMIN\Desktop\omafrans couture\site_app\tests.py", line 33, in test_requests_pollinations_flux_realistic_image
+    result, is_ai = generate_try_on(
+                    ~~~~~~~~~~~~~~~^
+        dress_bytes=image_bytes.getvalue(),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        notes="longer sleeves",
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Desktop\omafrans couture\site_app\dress_generator.py", line 949, in generate_try_on
+    raise ImageGenerationError(
+        "No AI generation key configured. Set POLLINATIONS_API_KEY or GEMINI_API_KEY."
+    )
+site_app.dress_generator.ImageGenerationError: No AI generation key configured. Set POLLINATIONS_API_KEY or GEMINI_API_KEY.
+
+======================================================================
+FAIL: test_pollinations_is_used_instead_of_gemini_when_both_are_configured (site_app.tests.AIGenerationTests.test_pollinations_is_used_instead_of_gemini_when_both_are_configured)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1905, in _inner
+    return f(*args, **kw)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1439, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\ADMIN\Desktop\omafrans couture\site_app\tests.py", line 156, in test_pollinations_is_used_instead_of_gemini_when_both_are_configured
+    with self.assertRaisesRegex(
+         ~~~~~~~~~~~~~~~~~~~~~~^
+        ImageGenerationError, "Pollinations image generation failed: Pollinations limit reached"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ):
+    ^
+AssertionError: ImageGenerationError not raised
+
+======================================================================
+FAIL: test_pollinations_webp_response_is_converted_to_png (site_app.tests.AIGenerationTests.test_pollinations_webp_response_is_converted_to_png)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1905, in _inner
+    return f(*args, **kw)
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 1439, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\ADMIN\Desktop\omafrans couture\site_app\tests.py", line 80, in test_pollinations_webp_response_is_converted_to_png
+    mock_get.assert_called_once()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\AppData\Local\Programs\Python\Python314\Lib\unittest\mock.py", line 965, in assert_called_once
+    raise AssertionError(msg)
+AssertionError: Expected 'get' to have been called once. Called 0 times.
+
+----------------------------------------------------------------------
+Ran 21 tests in 29.773s
+
+FAILED (failures=2, errors=1)
+Destroying test database for alias 'default'...
+
+Found 21 test(s).
+System check identified no issues (0 silenced).

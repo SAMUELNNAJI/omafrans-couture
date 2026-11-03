@@ -443,15 +443,20 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
 .zoom{display:flex;flex-direction:column;gap:6px}
 .ico{width:34px;height:34px;border-radius:6px;background:rgba(14,12,22,.9);border:1px solid rgba(255,255,255,.15);color:var(--acid);font:inherit;font-size:1rem;cursor:pointer}
 .ico:hover{border-color:var(--acid)}
-.canvas{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;transform-style:preserve-3d}
-.canvas.grab{cursor:grabbing}
+.canvas{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .canvas img.dress{transition:filter .5s}
 .figure{height:92%;aspect-ratio:200/460;transition:transform .12s linear;transform-style:preserve-3d;will-change:transform}
+.room-preview-placeholder{position:absolute;z-index:2;left:50%;top:50%;width:min(78%,420px);transform:translate(-50%,-50%);padding:16px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(14,12,22,.86);color:rgba(255,255,255,.78);font-size:.76rem;line-height:1.55;text-align:center}
+.room-preview-placeholder[hidden]{display:none}
 .fit-box{position:relative;width:100%;height:100%;transition:transform .5s cubic-bezier(.3,.8,.3,1)}
 .body{position:absolute;inset:0;width:100%;height:100%;fill:rgba(255,255,255,.14);stroke:rgba(255,255,255,.35);stroke-width:1}
 .dress{position:absolute;left:0;top:13%;width:100%;height:68%;object-fit:contain;user-select:none;filter:drop-shadow(0 10px 18px rgba(0,0,0,.55))}
-.generated-preview{position:absolute;width:min(78%,520px);height:94%;object-fit:contain;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.38);transform-style:preserve-3d;transition:transform .12s linear;will-change:transform}
+.generated-preview{position:absolute;width:min(78%,520px);height:94%;object-fit:contain;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.38);transition:transform .12s linear}
 .generated-preview[hidden]{display:none}
+.room-view-caption{position:absolute;z-index:4;bottom:58px;left:50%;transform:translateX(-50%);white-space:nowrap;color:rgba(255,255,255,.7);font-size:.58rem;text-transform:uppercase;letter-spacing:.07em}
+.room-views{position:absolute;z-index:4;bottom:14px;left:50%;display:flex;gap:6px;transform:translateX(-50%);padding:6px;border:1px solid rgba(255,255,255,.15);border-radius:999px;background:rgba(8,6,12,.82);backdrop-filter:blur(8px)}
+.room-views button{min-width:52px;padding:7px 10px;border:1px solid transparent;border-radius:999px;background:none;color:rgba(255,255,255,.78);font:inherit;font-size:.65rem;cursor:pointer}
+.room-views button:hover,.room-views button.on{border-color:var(--acid);background:var(--acid);color:#080808}
 .room-stage-label,.room-drag-hint{position:absolute;z-index:2;bottom:14px;padding:7px 10px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(8,6,12,.72);backdrop-filter:blur(8px);color:rgba(255,255,255,.72);font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;pointer-events:none}
 .room-stage-label{left:14px}
 .room-drag-hint{right:14px;color:var(--acid)}
@@ -494,6 +499,7 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
 .quote:disabled:hover{background:rgba(212,255,0,.1);color:var(--acid)}
 .room-sizes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .room-sizes button{background:none;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:8px 0;font:inherit;font-size:.75rem;color:rgba(255,255,255,.7);cursor:pointer;transition:.2s}
+.room-sizes button small{display:block;font-size:.54rem;color:inherit;opacity:.8}
 .room-sizes button:hover{border-color:var(--acid);color:#fff}
 .room-sizes button.on{background:var(--acid);border-color:var(--acid);color:#000}
 .size-info{font-size:.66rem;color:rgba(255,255,255,.6);margin:10px 0 18px;line-height:1.5}
@@ -511,7 +517,6 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
   .room-ui{grid-template-columns:minmax(0,1fr);grid-template-areas:"stage" "side" "dock";gap:12px}
   .room-ui>*{min-width:0}
   .stage{min-height:0;height:min(120vw,520px)}
-  .canvas{touch-action:pan-y}
   .figure{height:94%}
   .side{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 14px;align-items:start}
   .side .file-box{aspect-ratio:1;max-height:150px;grid-column:1}
@@ -595,18 +600,10 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
 
 /* ---------- DRESSING ROOM — AI GENERATION UPGRADES ---------- */
 
-/* Three.js 3-D mount */
-.three-mount{position:absolute;inset:0;width:100%;height:100%}
-.three-mount canvas{width:100%!important;height:100%!important;display:block}
-.canvas.mode-3d .figure{display:none}
-.canvas.mode-3d .three-mount{display:block}
-
 /* Loading overlay */
 .room-loading{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(8,6,12,.88);backdrop-filter:blur(8px);border-radius:8px}
 .room-loading[hidden],[hidden]{display:none !important}
-.three-mount[hidden]{display:none !important}
 .generated-preview[hidden]{display:none !important}
-.room-drag-hint[hidden]{display:none !important}
 .room-loading-inner{text-align:center;display:grid;gap:14px;padding:32px 28px;max-width:280px}
 .room-loading-inner p{font-family:'Unbounded',sans-serif;font-weight:900;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#fff}
 .room-loading-inner small{color:rgba(255,255,255,.55);font-size:.66rem;line-height:1.5}

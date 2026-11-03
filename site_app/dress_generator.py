@@ -19,25 +19,40 @@ from typing import Tuple
 import urllib.parse
 
 import requests
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 
-# Ensure resilient DNS resolution for Pollinations on all operating systems
+# Ensure resilient DNS resolution for Pollinations on all operating systems.
+# NOTE: requests/urllib3 imports socket at their own import time, so we must
+# patch both the stdlib socket module AND urllib3's internal socket reference
+# to guarantee the override takes effect regardless of import order.
 _SYSTEM_GETADDRINFO = socket.getaddrinfo
+
+POLLINATIONS_FALLBACK_IPS = ("104.18.6.216", "104.18.7.216")
+
 
 def _resilient_getaddrinfo(host, port, *args, **kwargs):
     try:
         return _SYSTEM_GETADDRINFO(host, port, *args, **kwargs)
     except socket.gaierror:
-        if "pollinations.ai" in host:
+        if "pollinations.ai" in str(host):
             return [
-                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.18.6.216", port)),
-                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.18.7.216", port)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))
+                for ip in POLLINATIONS_FALLBACK_IPS
             ]
         raise
 
+
 socket.getaddrinfo = _resilient_getaddrinfo
+
+# Also patch urllib3's connection module which may have cached the original
+# socket.getaddrinfo reference before this module was imported.
+try:
+    import urllib3.util.connection as _urllib3_conn
+    _urllib3_conn.socket.getaddrinfo = _resilient_getaddrinfo  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 
 class ImageGenerationError(RuntimeError):
@@ -442,8 +457,15 @@ SIZE_PROPORTIONS: dict[str, str] = {
     "XL": "full-figured XL frame, Bust 103cm Waist 85cm Hips 109cm, voluptuous curves generous hips",
     "2XL":"plus-size 2XL frame, Bust 111cm Waist 93cm Hips 117cm, richly curvy full-figured body",
     "3XL":"chubby 3XL plus-size frame, Bust 120cm Waist 102cm Hips 126cm, chubby rounder belly soft arms and thighs",
-    "4XL":"fat 4XL plus-size frame, Bust 130cm Waist 112cm Hips 136cm, visibly fat round belly large arms heavy thighs",
-    "5XL":"very fat 5XL plus-size frame, Bust 142cm Waist 124cm Hips 148cm, very fat body large round belly very heavy arms thick thighs wide hips",
+    "4XL":"very fat 4XL plus-size frame, Bust 130cm Waist 112cm Hips 136cm, a very full figure with a round belly, full arms and thighs",
+    "5XL":"very fat 5XL plus-size frame, Bust 142cm Waist 124cm Hips 148cm, an extremely full figure with a large round belly, very full arms and thighs, and wide hips",
+}
+
+VIEW_DESCRIPTIONS: dict[str, str] = {
+    "front": "front view, facing the camera",
+    "left": "left-side three-quarter view, turned to the model's left so the garment's left side is visible",
+    "back": "rear view, facing away from the camera so the back of the garment is clearly visible",
+    "right": "right-side three-quarter view, turned to the model's right so the garment's right side is visible",
 }
 
 
@@ -457,12 +479,12 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -
     if not api_key:
         return ""
     try:
-        # Resize to 384x384 at quality 75 for fast, ultra-reliable network transmission
+        # Preserve small print and trim details for the visual analysis request.
         with Image.open(io.BytesIO(dress_bytes)) as im:
             im = im.convert("RGB")
-            im.thumbnail((384, 384), Image.Resampling.LANCZOS)
+            im.thumbnail((768, 768), Image.Resampling.LANCZOS)
             buf = io.BytesIO()
-            im.save(buf, format="JPEG", quality=75)
+            im.save(buf, format="JPEG", quality=88)
             b64_img = base64.b64encode(buf.getvalue()).decode("ascii")
 
         if notes:
@@ -471,7 +493,7 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -
                 "Inspect the uploaded clothing item on the mannequin or display. "
                 "Identify its textile type (e.g. African wax print / Ankara, lace, silk, velvet), construction (e.g. two-piece peplum top with pencil skirt, dress), "
                 "exact colors, patterns, and tailoring details. "
-                f"Describe the customized couture outfit in 2 concise sentences for an AI image generator to dress a real living female model. "
+                f"Describe the customized couture outfit in 4 concise sentences for an AI image generator to dress a real living female model. "
                 f"The outfit must strictly follow the client's custom design requirements ('{notes}') as the primary design, "
                 "while drawing authentic craftsmanship, fabric patterns, and tailoring details from the reference garment."
             )
@@ -483,7 +505,7 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -
                 "2. Precise garment construction: two-piece peplum blouse with matching pencil skirt, evening dress, jumpsuit, etc. "
                 "3. Exact colors and trims: primary colors (e.g. royal blue) and contrast borders/piping (e.g. bright canary yellow). "
                 "4. Distinctive tailoring details: neckline (e.g. V-neck with contrast borders), waist (e.g. tiered peplum flounce hem, front bow knot), sleeves (e.g. puffed sleeves with cuffs), and skirt silhouette. "
-                "Write 2 concise, descriptive sentences specifying this EXACT outfit so an AI image generator creates a real living woman wearing this identical garment."
+                "Describe all clearly visible garment details in 4 concise sentences. Do not invent details that cannot be seen."
             )
 
         resp = requests.post(
@@ -506,7 +528,7 @@ def _analyze_garment_vision(dress_bytes: bytes, api_key: str, notes: str = "") -
                         ],
                     }
                 ],
-                "max_tokens": 160,
+                "max_tokens": 320,
             },
             timeout=30,
         )
@@ -590,10 +612,12 @@ def _generate_with_pollinations(
     fabric: str,
     colour_filter: str,
     notes: str,
+    view: str = "front",
 ) -> bytes:
     """
     Generate a photorealistic fashion photograph using Pollinations.ai (Flux).
-    The prompt is engineered to reproduce the EXACT uploaded garment 100% faithfully.
+    The prompt uses a vision-generated garment description; exact image reproduction
+    cannot be guaranteed by a text-to-image provider.
     """
     api_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
     if not api_key:
@@ -610,6 +634,9 @@ def _generate_with_pollinations(
         else:
             silhouette, detected_color = _detect_garment_colors(dress_bytes)
             garment_detail = f"{detected_color} {silhouette}"
+
+    # Truncate garment detail to avoid URL length limits (Pollinations 404s on URLs > ~2500 chars)
+    garment_detail = garment_detail[:400]
 
     # 2. Body size
     size_key = size.upper()
@@ -636,8 +663,7 @@ def _generate_with_pollinations(
         )
     else:
         color_instruction = (
-            "Reproduce the EXACT original colors of the garment with 100% fidelity — "
-            "every color, print pattern, wax print motif, contrast border, and color block must match the reference perfectly."
+            "Use the original garment colors and reproduce the visible print, contrast borders, and color blocks as closely as possible."
         )
 
     # 5. Build the ultra-precise prompt
@@ -654,8 +680,8 @@ def _generate_with_pollinations(
         f"EXACT REPLICA fashion photograph: a real adult Black African woman with natural beautiful face, "
         f"styled natural hair, realistic skin with natural pores, wearing THIS EXACT GARMENT from the reference image. "
         # Garment precision
-        f"GARMENT EXACT DETAILS TO REPRODUCE 100%: {garment_detail}. "
-        f"Every single element must be IDENTICAL to the reference: the exact cut and silhouette, "
+        f"VISIBLE GARMENT DETAILS TO PRESERVE: {garment_detail}. "
+        f"Match the visible cut and silhouette, "
         f"exact collar or neckline shape, exact sleeve length and style, exact hem length, "
         f"exact waist design, exact pocket placement, exact button or zip details, "
         f"exact embroidery or applique, exact wax print pattern or fabric motif, "
@@ -668,50 +694,85 @@ def _generate_with_pollinations(
         f"{design_directive} "
         # Body
         f"The model has a {body_proportion}. "
+        f"Camera view: {VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS['front'])}. "
+        f"Keep the same garment design and body size for this requested angle. "
         f"Full body visible from head to toe. Natural human anatomy, realistic hands and fingers. "
         f"The woman is PHYSICALLY WEARING the garment on her body — fabric drapes naturally over her real body shape. "
         # Scene
         f"Setting: bright elegant boutique dressing room, cream walls, warm parquet floor, "
-        f"professional soft studio lighting, no harsh shadows. "
-        f"The model stands confidently, looking directly at camera, full-length editorial pose. "
+        f"bright, evenly exposed professional soft studio lighting, accurate natural garment colors, no harsh shadows and no underexposure. "
+        f"The model poses naturally for the requested angle, with face direction appropriate to that view. "
         # Quality
         f"Vogue editorial fashion photography, 8K resolution, hyperrealistic, sharp fabric texture detail, "
         f"photographic quality. NO mannequins, NO flat lay, NO ghost mannequin — only a real living woman."
     )
 
-    encoded = urllib.parse.quote(prompt)
     seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}_{notes}_{garment_detail[:30]}")) % 900000 + 10000
 
-    endpoints = [
-        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base}&enhance=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base+1}&enhance=true",
-    ]
+    # Use POST to /generate — the prompt travels in the request body with no URL length limit.
+    post_url = "https://image.pollinations.ai/generate"
     headers = {
         "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
         "User-Agent": "OmafransCouture/2.0",
+        # Close the connection after each request to prevent keep-alive connection
+        # reuse from a prior GET to /prompt/... which would corrupt the POST path.
+        "Connection": "close",
     }
 
     last_error = None
-    for url in endpoints:
+    # Try seed_base first, then seed_base+1 as retry — gives two chances against
+    # intermittent load-balancer 404s on the /generate POST path.
+    for seed in (seed_base, seed_base + 1, seed_base + 2):
+        payload = {
+            "prompt": prompt,
+            "model": "flux",
+            "width": 768,
+            "height": 1024,
+            "nologo": True,
+            "seed": seed,
+            "enhance": True,
+        }
         try:
-            resp = requests.get(url, headers=headers, timeout=90)
-            if resp.status_code == 200 and resp.content and resp.content[:4] in (b"\xff\xd8\xff\xe0", b"\x89PNG", b"\xff\xd8"):
-                with Image.open(io.BytesIO(resp.content)) as im:
-                    im.load()
-                    out = io.BytesIO()
-                    im.convert("RGB").save(out, format="PNG")
-                    logger.info("Pollinations Flux generated image successfully.")
+            # Use a fresh session for each attempt to avoid connection-pool reuse
+            # corruption (prior GET to /prompt/... can cause POST to hit /prompt/generate).
+            with requests.Session() as sess:
+                resp = sess.post(post_url, json=payload, headers=headers, timeout=90)
+            if resp.status_code == 200 and resp.content:
+                try:
+                    with Image.open(io.BytesIO(resp.content)) as im:
+                        im.load()
+                        image_format = im.format
+                        out = io.BytesIO()
+                        im.convert("RGB").save(out, format="PNG")
+                    logger.info(
+                        "Pollinations Flux generated image successfully (format=%s).",
+                        image_format,
+                    )
                     return out.getvalue()
+                except (UnidentifiedImageError, OSError):
+                    content_type = resp.headers.get("Content-Type", "unknown")
+                    last_error = (
+                        f"Pollinations returned non-image content "
+                        f"(HTTP 200, content type {content_type})."
+                    )
+                    logger.warning("%s", last_error)
             elif resp.status_code in (401, 403):
                 raise ImageGenerationError("Pollinations rejected the API key. Check POLLINATIONS_API_KEY.")
+            elif resp.status_code == 402:
+                raise ImageGenerationError(
+                    "Pollinations image quota or account limit reached. Check the provider account's usage and billing."
+                )
             elif resp.status_code == 429:
-                raise ImageGenerationError("Pollinations rate limit. Please wait a moment and try again.")
+                raise ImageGenerationError(
+                    "Pollinations rate limit reached. Wait before trying again or use an account with available quota."
+                )
             else:
                 last_error = f"HTTP {resp.status_code}: {resp.text[:120]}"
-                logger.warning("Pollinations attempt failed: %s", last_error)
+                logger.warning("Pollinations attempt failed (seed %s): %s", seed, last_error)
         except requests.Timeout:
             last_error = "Pollinations request timed out."
-            logger.warning("Pollinations timeout for endpoint %s", url)
+            logger.warning("Pollinations timeout for seed %s", seed)
         except requests.RequestException as exc:
             last_error = str(exc)
             logger.warning("Pollinations request error: %s", exc)
@@ -725,6 +786,7 @@ def _generate_with_gemini(
     fabric: str,
     colour_filter: str,
     notes: str,
+    view: str = "front",
 ) -> bytes | None:
     """
     Generate a photorealistic fitting preview with Gemini.
@@ -753,15 +815,21 @@ def _generate_with_gemini(
             "Recreate the garment faithfully: preserve its colour, cut, silhouette, fabric appearance, pattern, and visible details."
         )
 
+    view_direction = VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS["front"])
     prompt = (
-        "Create one photorealistic, full-length luxury fashion photograph for Omafrans Couture. "
+        "Edit the supplied garment reference into one photorealistic, full-length luxury fashion fitting photograph for Omafrans Couture. "
+        "Use the uploaded image as the visual source of truth for the garment. Preserve its visible construction, silhouette, "
+        "print motifs, color blocks, trims, and embellishments as closely as possible; do not invent a replacement design. "
         f"{garment_intro} "
         "Show one person from head to toe, with a visible natural face and realistic human anatomy, "
         "hands, proportions, skin, and fabric folds. The person must be the "
         "main subject and the garment must be clearly visible. Compose a "
-        "single vertical 3:4 editorial photograph in a refined couture fitting "
-        "room with soft, realistic studio lighting. "
+        f"single vertical 3:4 editorial photograph from a {view_direction}. "
+        "Use a bright, evenly lit cream boutique fitting room, soft balanced studio lighting, "
+        "natural exposure, and accurate vivid garment colors; do not make the image dark or moody. "
         f"Selected size: {size}. Fabric preference: {fabric}. "
+        f"Selected color tone: {COLOUR_DESCRIPTIONS.get(colour_filter, 'the original garment colors')}. "
+        "Apply the selected color tone to the garment only; keep skin, hair, background, and lighting colors unchanged. "
         f"{f'Mandatory client specifications: {notes}.' if notes else ''}"
     )
 
@@ -786,14 +854,20 @@ def _generate_with_gemini(
             "imageConfig": {"aspectRatio": "3:4"},
         },
     }
-    resp = requests.post(
-        url,
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=100,
-    )
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=100,
+        )
+    except requests.RequestException as exc:
+        raise ImageGenerationError("Gemini request failed due to a network error.") from exc
     if resp.status_code == 200:
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ImageGenerationError("Gemini returned an unreadable response.") from exc
         candidates = data.get("candidates", [])
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
@@ -806,7 +880,18 @@ def _generate_with_gemini(
                         output = io.BytesIO()
                         image.convert("RGB").save(output, format="PNG")
                     return output.getvalue()
-    raise ImageGenerationError(f"Gemini generation returned status {resp.status_code}")
+        raise ImageGenerationError(
+            "Gemini returned no generated image. Check the model's image-generation access and account quota."
+        )
+    if resp.status_code == 429:
+        raise ImageGenerationError(
+            "Gemini rate limit or image-generation quota reached. Check Gemini API usage and billing, then try again."
+        )
+    if resp.status_code in (401, 403):
+        raise ImageGenerationError(
+            "Gemini rejected the API key or image-generation access. Check GEMINI_API_KEY and the project's permissions."
+        )
+    raise ImageGenerationError(f"Gemini generation failed (HTTP {resp.status_code}).")
 
 
 def generate_try_on(
@@ -815,45 +900,55 @@ def generate_try_on(
     fabric: str = "Premium Gabardine",
     colour_filter: str = "none",
     notes: str = "",
+    view: str = "front",
 ) -> tuple[bytes, bool]:
     """
-    Generate a photorealistic dressing-room try-on image with Pollinations.ai (Flux)
-    or Gemini as fallback.
+    Generate a photorealistic dressing-room try-on image.
 
     :param dress_bytes:   Raw bytes of the uploaded dress image.
-    :param size:          One of XS / S / M / L / XL / 2XL.
+    :param size:          One of XS through 5XL.
     :param fabric:        Fabric name matching FABRIC_FILTERS keys.
     :param colour_filter: CSS filter string matching COLOUR_TINTS keys.
     :param notes:         Free-text design notes.
+    :param view:          Requested camera angle: front, left, back, or right.
     :returns:             (PNG bytes, True)
     """
-    # 1. Primary: Pollinations.ai Flux
-    if os.environ.get("POLLINATIONS_API_KEY", "").strip():
+    if view not in VIEW_DESCRIPTIONS:
+        raise ImageGenerationError("Invalid model view. Choose front, left, back, or right.")
+
+    pollinations_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+    # Try Pollinations first (preferred provider when configured).
+    if pollinations_key:
         try:
             generated_image = _generate_with_pollinations(
-                dress_bytes, size, fabric, colour_filter, notes
+                dress_bytes, size, fabric, colour_filter, notes, view
             )
             return generated_image, True
         except ImageGenerationError as exc:
-            logger.warning("Pollinations failed: %s", exc)
-            if not os.environ.get("GEMINI_API_KEY", "").strip():
-                logger.warning("No Gemini key — falling back to Pillow compositor.")
-                return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
+            logger.warning("Pollinations failed, will try Gemini fallback: %s", exc)
+            # Fall through to Gemini when both keys are configured.
 
-    # 2. Secondary fallback: Gemini
-    if os.environ.get("GEMINI_API_KEY", "").strip():
+    # Fall back to Gemini when Pollinations is unconfigured or failed.
+    if gemini_key:
         try:
             generated_image = _generate_with_gemini(
-                dress_bytes, size, fabric, colour_filter, notes
+                dress_bytes, size, fabric, colour_filter, notes, view
             )
             return generated_image, True
         except ImageGenerationError as exc:
-            logger.warning("Gemini failed: %s — falling back to Pillow compositor.", exc)
-            return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
+            logger.warning("Gemini failed: %s", exc)
+            if pollinations_key:
+                raise ImageGenerationError(
+                    f"Both Pollinations and Gemini generation failed. "
+                    f"Last Gemini error: {exc}"
+                ) from exc
+            raise ImageGenerationError(f"Gemini image generation failed: {exc}") from exc
 
-    # 3. Final fallback: always works, no API needed
-    logger.info("No AI keys configured — using Pillow compositor.")
-    return _generate_pillow_composite(dress_bytes, size, fabric, colour_filter), False
+    raise ImageGenerationError(
+        "No AI generation key configured. Set POLLINATIONS_API_KEY or GEMINI_API_KEY."
+    )
 
 
 def _generate_pillow_composite(
@@ -877,4 +972,3 @@ def _generate_pillow_composite(
     out = io.BytesIO()
     final.convert("RGB").save(out, format="PNG", optimize=True)
     return out.getvalue()
-

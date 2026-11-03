@@ -1,8 +1,5 @@
 /**
- * dressing-room.js  — Omafrans Couture AI Dressing Room v3
- * True 3D: only the model mesh rotates, background stays fixed.
- * Colour tones applied directly to the mesh material, not CSS filter.
- * Requires Three.js loaded before this script.
+ * dressing-room.js — Omafrans Couture AI Dressing Room
  */
 (function () {
   'use strict';
@@ -15,11 +12,13 @@
   /* ── elements ─────────────────────────────────────────────────── */
   var elFile        = document.getElementById('roomFile');
   var elThumb       = document.getElementById('roomThumb');
-  var elDress2D     = document.getElementById('roomDress');
   var elFigure      = document.getElementById('figure');
   var elFitBox      = document.getElementById('fitBox');
   var elCanvas      = document.getElementById('canvas');
+  var elGenerated   = document.getElementById('generatedPreview');
+  var elPreviewPlaceholder = document.getElementById('roomPreviewPlaceholder');
   var elThreeMount  = document.getElementById('threeMount');
+  var elViews       = document.getElementById('roomViews');
   var elStatus      = document.getElementById('roomStatus');
   var elGenerate    = document.getElementById('generateLook');
   var elContact     = document.getElementById('roomContact');
@@ -78,6 +77,7 @@
     sizeMeasure:  'Bust 90 · Waist 72 · Hips 96',
     fabric:       'Premium Gabardine',
     colour:       'none',
+    view:         'front',
     zoom:         1,
     rotY:         0,
     rotX:         0,
@@ -110,6 +110,8 @@
     var sc = SIZE_SCALE_2D[S.sizeName] || 1;
     if (elFitBox) elFitBox.style.transform = 'scaleX(' + sc + ')';
     if (elFigure) elFigure.style.transform =
+      'translate(' + S.x + 'px,' + S.y + 'px) scale(' + S.zoom + ')';
+    if (elGenerated) elGenerated.style.transform =
       'translate(' + S.x + 'px,' + S.y + 'px) scale(' + S.zoom + ')';
   }
 
@@ -298,10 +300,24 @@
     elCanvas.classList.add('mode-3d');
   }
 
-  function show2DFigure() {
+  function showPreviewPlaceholder(message) {
     if (elFigure)     { elFigure.hidden = false; elFigure.style.display = ''; }
     if (elThreeMount) { elThreeMount.hidden = true; elThreeMount.style.display = 'none'; }
-    if (elDragHint)   { elDragHint.hidden = true; elDragHint.style.display = 'none'; }
+    if (elGenerated)  { elGenerated.hidden = true; elGenerated.style.display = 'none'; }
+    if (elDragHint)   { elDragHint.hidden = true;   elDragHint.style.display = 'none'; }
+    if (elPreviewPlaceholder) {
+      elPreviewPlaceholder.hidden = false;
+      elPreviewPlaceholder.textContent = message;
+    }
+    elCanvas.classList.remove('mode-3d');
+  }
+
+  function showGenerated() {
+    if (elFigure)     { elFigure.hidden = true; elFigure.style.display = 'none'; }
+    if (elThreeMount) { elThreeMount.hidden = true; elThreeMount.style.display = 'none'; }
+    if (elGenerated)  { elGenerated.hidden = false; elGenerated.style.display = 'block'; }
+    if (elPreviewPlaceholder) elPreviewPlaceholder.hidden = true;
+    if (elDragHint)   { elDragHint.hidden = true;   elDragHint.style.display = 'none'; }
     elCanvas.classList.remove('mode-3d');
   }
 
@@ -316,14 +332,19 @@
     S.file = file; S.sourceUrl = URL.createObjectURL(file);
     S.generatedUrl = ''; S.hasResult = false;
 
-    elDress2D.src = S.sourceUrl; elDress2D.hidden = false;
     elThumb.src   = S.sourceUrl;
-    show2DFigure();
+    showPreviewPlaceholder('Generating an AI fitting from your upload. The original photo remains in the thumbnail.');
 
     elContact.disabled     = true;
     elGenerate.disabled    = false;
     elGenerate.textContent = 'Generate preview';
     S.x = S.y = S.rotX = S.rotY = 0;
+    S.view = 'front';
+    if (elViews) elViews.querySelectorAll('button').forEach(function (b) {
+      var selected = b.dataset.view === S.view;
+      b.classList.toggle('on', selected);
+      b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
     paint2D();
     setStatus('Dress loaded. Generating AI preview…');
     console.log('[DR] File loaded:', file.name, file.size);
@@ -377,7 +398,7 @@
     elGenerate.disabled    = true;
     elGenerate.textContent = 'Generating…';
     elContact.disabled     = true;
-    showLoading('AI is generating your exact garment on size ' + S.sizeName + ' model…');
+    showLoading('Generating a ' + S.view + ' view for size ' + S.sizeName + '…');
     setStatus('');
 
     var fd = new FormData();
@@ -385,6 +406,7 @@
     fd.append('size',    S.sizeName);
     fd.append('fabric',  S.fabric);
     fd.append('colour',  S.colour);
+    fd.append('view',    S.view);
     var notesVal = (elNotes.value || '').trim().slice(0, 500);
     S.lastNotes = notesVal;
     fd.append('notes', notesVal);
@@ -418,36 +440,27 @@
 
         console.log('[DR] Decoded blob', blob.size, 'bytes. is_ai:', data.is_ai);
 
-        /* display */
-        initThree();
-        if (T3) {
-          show3D();
-          loadTex(S.generatedUrl, function (ok) {
-            if (!ok) {
-              /* WebGL failed — show flat image on the 2D dress element */
-              elDress2D.src    = S.generatedUrl;
-              elDress2D.hidden = false;
-              show2DFigure();
-            }
-            _finishGenerate(data.is_ai);
-          });
-        } else {
-          elDress2D.src    = S.generatedUrl;
-          elDress2D.hidden = false;
-          show2DFigure();
-          _finishGenerate(data.is_ai);
-        }
+        elGenerated.src = S.generatedUrl;
+        elGenerated.alt = 'AI-generated ' + S.view + ' view of the fitting';
+        showGenerated();
+        _finishGenerate(data.is_ai);
 
         setTimeout(hideLoading, 1000); // safety
       })
       .catch(function (err) {
         clearTimeout(tID);
-        if (err.name === 'AbortError') { console.log('[DR] Aborted'); return; }
+        if (err.name === 'AbortError' && _activeCtrl !== ctrl) {
+          console.log('[DR] Superseded generation aborted');
+          return;
+        }
         _activeCtrl = null; S.busy = false;
         hideLoading();
         elGenerate.disabled    = false;
         elGenerate.textContent = 'Try again';
-        setStatus('Error: ' + err.message, 'error');
+        if (!S.hasResult) {
+          showPreviewPlaceholder('No AI fitting was generated. Your upload is shown only in the thumbnail.');
+        }
+        setStatus(err.name === 'AbortError' ? 'Generation timed out. Please try again.' : err.message, 'error');
         console.error('[DR] Generate error:', err);
       });
   }
@@ -459,8 +472,8 @@
     elGenerate.textContent = 'Regenerate';
     setStatus(
       isAi
-        ? 'AI preview ready — drag to rotate the 3D model. Change colour tones or add notes and regenerate.'
-        : 'Preview ready — drag to rotate, change colours/fabric and regenerate.',
+        ? 'AI ' + S.view + ' view ready. Choose another angle or change colour/fabric to generate an updated preview.'
+        : 'Preview ready. Choose another angle or change colour/fabric to generate an updated preview.',
       'ok'
     );
   }
@@ -472,9 +485,11 @@
     var b = e.target.closest('button'); if (!b) return;
     elSizeButtons.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
     b.classList.add('on');
-    S.sizeName    = b.textContent.trim();
+    S.sizeName    = b.dataset.size || b.textContent.trim();
     S.sizeMeasure = b.dataset.m || '';
-    elSizeInfo.textContent = 'Size ' + S.sizeName + ' · ' + S.sizeMeasure + ' cm';
+    elSizeInfo.textContent = 'Size ' + S.sizeName
+      + (b.dataset.label ? ' · ' + b.dataset.label : '')
+      + ' · ' + S.sizeMeasure + ' cm';
     paint2D();
     if (S.file) { setStatus('Size ' + S.sizeName + ' — regenerating…'); _autoGenDebounce(200); }
   });
@@ -485,7 +500,8 @@
     elFabrics.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
     b.classList.add('on');
     S.fabric = b.textContent.trim();
-    if (S.file) { setStatus('Fabric: ' + S.fabric + ' — regenerating…'); _autoGenDebounce(300); }
+    if (S.file) { setStatus('Fabric: ' + S.fabric + ' — generating updated preview…'); _autoGenDebounce(300); }
+    else setStatus('Fabric selected. Upload a garment photo to see it in a generated preview.');
   });
 
   /* ── colour palette ────────────────────────────────────────────── */
@@ -494,13 +510,13 @@
     elPalettes.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
     b.classList.add('on');
     S.colour = b.dataset.f || 'none';
-    /* Apply to 3D mesh immediately (no re-generate needed) */
-    applyColourToMesh();
-    /* Also apply CSS filter to 2D fallback image */
-    var css = (S.colour && S.colour !== 'none') ? S.colour : '';
-    elDress2D.style.filter = css;
     var label = b.getAttribute('aria-label') || 'selected';
-    setStatus('Colour tone: ' + label + '.', 'ok');
+    if (S.file) {
+      setStatus('Generating the garment in ' + label + '…');
+      _autoGenDebounce(200);
+    } else {
+      setStatus('Colour selected. Upload a garment photo to generate a preview in this tone.');
+    }
   });
 
   elPalNav.addEventListener('click', function (e) {
@@ -523,12 +539,10 @@
   /* ── zoom ──────────────────────────────────────────────────────── */
   elZoomIn.addEventListener('click',  function () {
     S.zoom = Math.min(S.zoom + .15, 2.5);
-    if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom - 1) * .8);
     paint2D();
   });
   elZoomOut.addEventListener('click', function () {
     S.zoom = Math.max(S.zoom - .15, .5);
-    if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom - 1) * .8);
     paint2D();
   });
 
@@ -536,59 +550,54 @@
   elReset.addEventListener('click', function () {
     S.zoom = 1; S.x = 0; S.y = 0; S.rotX = 0; S.rotY = 0;
     S.colour = 'none'; S.fabric = 'Premium Gabardine';
+    S.view = 'front';
     elPalettes.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
     var fp = elPalettes.querySelector('.pal button'); if (fp) fp.classList.add('on');
     elFabrics.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
     var fb = elFabrics.querySelector('button'); if (fb) fb.classList.add('on');
-    if (T3) {
-      T3.mesh.rotation.set(0, 0, 0);
-      T3.mat.color.setRGB(1, 1, 1);
-      T3.camera.position.z = 2.8;
-    }
-    elDress2D.style.filter = '';
+    if (elViews) elViews.querySelectorAll('button').forEach(function (b) {
+      var selected = b.dataset.view === S.view;
+      b.classList.toggle('on', selected);
+      b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
     paint2D();
-    setStatus('Reset.');
+    if (S.file) triggerGenerate();
+    else setStatus('Reset.');
   });
 
-  /* ── drag to rotate (model only, background fixed) ─────────────── */
-  var _drag = null;
+  /* ── AI-generated angle controls ───────────────────────────────── */
+  var VIEW_ANGLES = ['front', 'left', 'back', 'right'];
 
-  elCanvas.addEventListener('pointerdown', function (e) {
-    if (e.target.closest('button') || e.target.closest('label')) return;
-    _drag = { sx: e.clientX, sy: e.clientY,
-              rotY: S.rotY, rotX: S.rotX,
-              px: S.x, py: S.y,
-              is3d: elCanvas.classList.contains('mode-3d') };
-    elCanvas.setPointerCapture(e.pointerId);
-    elCanvas.classList.add('grab');
-  });
+  function chooseView(view) {
+    if (VIEW_ANGLES.indexOf(view) === -1) return;
+    S.view = view;
+    elViews.querySelectorAll('button').forEach(function (b) {
+      var selected = b.dataset.view === view;
+      b.classList.toggle('on', selected);
+      b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    if (S.file) triggerGenerate();
+    else setStatus('Upload a garment photo to generate the ' + view + ' view.');
+  }
 
-  elCanvas.addEventListener('pointermove', function (e) {
-    if (!_drag) return;
-    var dx = e.clientX - _drag.sx, dy = e.clientY - _drag.sy;
-    if (_drag.is3d && T3) {
-      S.rotY = Math.max(-80, Math.min(80, _drag.rotY + dx * 0.5));
-      S.rotX = Math.max(-20, Math.min(20, _drag.rotX - dy * 0.15));
-      applyRot();  // only mesh rotates, background is in a separate scene
-    } else {
-      S.x = _drag.px + dx; S.y = _drag.py + dy; paint2D();
-    }
-  });
-
-  ['pointerup','pointercancel','lostpointercapture'].forEach(function (ev) {
-    elCanvas.addEventListener(ev, function () { _drag = null; elCanvas.classList.remove('grab'); });
+  elViews.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-view]');
+    if (b) chooseView(b.dataset.view);
   });
 
   /* ── tool toggle ────────────────────────────────────────────────── */
   elToolMove.addEventListener('click', function () {
     elToolMove.classList.add('on'); elToolColor.classList.remove('on');
-    setStatus('Drag the preview to rotate the model 360°.');
+    var next = (VIEW_ANGLES.indexOf(S.view) + 1) % VIEW_ANGLES.length;
+    chooseView(VIEW_ANGLES[next]);
   });
   elToolColor.addEventListener('click', function () {
     elToolColor.classList.add('on'); elToolMove.classList.remove('on');
     var dock = document.querySelector('.dock');
     if (dock) dock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    setStatus('Pick a colour tone to apply to the garment instantly.');
+    var firstTone = elPalettes.querySelector('.pal:not([hidden]) button');
+    if (firstTone) firstTone.focus();
+    setStatus('Choose a colour tone to generate a new fitting preview.');
   });
 
   /* ── WhatsApp contact ───────────────────────────────────────────── */
