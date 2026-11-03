@@ -15,6 +15,7 @@ import math
 import os
 import random
 import socket
+import time
 from typing import Tuple
 import urllib.parse
 
@@ -221,104 +222,135 @@ def _body_silhouette(
     ankle_hw     = int(w * 0.040 * scale)
 
     skin = (210, 175, 145)       # warm medium skin tone
-    skin_dark = (170, 130, 105)  # shadow
-    skin_light = (235, 205, 180) # highlight
+    skin_dark = (160, 122, 96)   # shadow side
+    skin_light = (240, 214, 188) # highlight side
+    hair = (45, 34, 28)          # dark brown hair
 
-    # ---- head ----
+    # ------------------------------------------------------------------
+    # Shading layer (gives the flat polygons 3D volume)
+    # ------------------------------------------------------------------
+    shade = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+
+    # ------------------------------------------------------------------
+    # Head / face
+    # ------------------------------------------------------------------
     draw.ellipse(
         [cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r],
-        fill=skin
+        fill=skin,
     )
-    # Face highlight
+    # Face highlight (light from upper-left)
     draw.ellipse(
-        [cx - head_r + 6, head_cy - head_r + 4,
-         cx + head_r - 16, head_cy + 2],
-        fill=skin_light
+        [cx - head_r + 6, head_cy - head_r + 5,
+         cx + head_r - 16, head_cy + 4],
+        fill=skin_light,
     )
+    # Shadow on right side of face
+    sd.ellipse(
+        [cx + head_r - 14, head_cy - 10, cx + head_r + 4, head_cy + head_r - 6],
+        fill=(0, 0, 0, 30),
+    )
+    # Subtle facial features
+    eye_y = head_cy - int(head_r * 0.18)
+    draw.ellipse([cx - head_r + 14, eye_y - 3, cx - head_r + 22, eye_y + 3], fill=(60, 50, 45))
+    draw.ellipse([cx + head_r - 22, eye_y - 3, cx + head_r - 14, eye_y + 3], fill=(60, 50, 45))
+    draw.ellipse([cx - 2, head_cy + 4, cx + 2, head_cy + 8], fill=(150, 90, 70))
 
-    # ---- neck ----
+    # Hair cap framing the face
+    draw.pieslice(
+        [cx - head_r - 4, head_cy - head_r - 6, cx + head_r + 4, head_cy + head_r + 2],
+        180, 360, fill=hair,
+    )
+    draw.rectangle([cx - head_r - 4, head_cy - 6, cx + head_r + 4, head_cy + head_r], fill=hair)
+
+    # ------------------------------------------------------------------
+    # Neck
+    # ------------------------------------------------------------------
     neck_hw = int(head_r * 0.42)
     draw.polygon([
         (cx - neck_hw, neck_y),
         (cx + neck_hw, neck_y),
-        (cx + int(neck_hw * 0.8), shoulder_y),
-        (cx - int(neck_hw * 0.8), shoulder_y),
+        (cx + int(neck_hw * 0.85), shoulder_y),
+        (cx - int(neck_hw * 0.85), shoulder_y),
     ], fill=skin)
+    sd.rectangle([cx + int(neck_hw * 0.5), neck_y, cx + neck_hw, shoulder_y], fill=(0, 0, 0, 22))
 
-    def body_poly(
-        y_top, hw_top, y_bot, hw_bot, tuck=0.0
-    ):
-        """Helper: draw a trapezoid body segment with a waist tuck."""
-        pts = [
-            (cx - hw_top, y_top),
-            (cx + hw_top, y_top),
-            (cx + hw_bot, y_bot),
-            (cx - hw_bot, y_bot),
-        ]
-        return pts
-
-    # ---- torso ----
-    torso_pts = [
+    # ------------------------------------------------------------------
+    # Torso (bust -> waist -> hips hourglass)
+    # ------------------------------------------------------------------
+    draw.polygon([
         (cx - shoulder_hw, shoulder_y),
         (cx + shoulder_hw, shoulder_y),
-        (cx + waist_hw,    waist_y),
-        (cx - waist_hw,    waist_y),
-    ]
-    draw.polygon(torso_pts, fill=skin)
-    # torso highlight
-    hi_pts = [
-        (cx - int(shoulder_hw * 0.3), shoulder_y),
-        (cx + int(shoulder_hw * 0.3), shoulder_y),
-        (cx + int(waist_hw * 0.3),    waist_y),
-        (cx - int(waist_hw * 0.3),    waist_y),
-    ]
-    draw.polygon(hi_pts, fill=skin_light)
-
-    # ---- arms (simple ellipses angled outward) ----
-    arm_w = int(w * 0.048 * scale)
-    arm_h = int((waist_y - shoulder_y) * 1.12)
-    for side in (-1, 1):
-        ax = cx + side * int(shoulder_hw * 1.06)
-        ay = shoulder_y + int(arm_h * 0.45)
-        draw.ellipse(
-            [ax - arm_w, ay - arm_h // 2, ax + arm_w, ay + arm_h // 2],
-            fill=skin
-        )
-
-    # ---- hips ----
-    hip_pts = [
+        (cx + bust_hw, int((shoulder_y + waist_y) / 2)),
+        (cx - bust_hw, int((shoulder_y + waist_y) / 2)),
+    ], fill=skin)
+    draw.polygon([
+        (cx - bust_hw, int((shoulder_y + waist_y) / 2)),
+        (cx + bust_hw, int((shoulder_y + waist_y) / 2)),
+        (cx + waist_hw, waist_y),
+        (cx - waist_hw, waist_y),
+    ], fill=skin)
+    draw.polygon([
         (cx - waist_hw, waist_y),
         (cx + waist_hw, waist_y),
-        (cx + hip_hw,   hip_y),
-        (cx - hip_hw,   hip_y),
-    ]
-    draw.polygon(hip_pts, fill=skin)
+        (cx + hip_hw, hip_y),
+        (cx - hip_hw, hip_y),
+    ], fill=skin)
+    # Torso shading (right side darker = volume)
+    sd.polygon([
+        (cx + bust_hw * 0.55, shoulder_y),
+        (cx + shoulder_hw, shoulder_y),
+        (cx + shoulder_hw, int((shoulder_y + waist_y) / 2)),
+        (cx + bust_hw * 0.65, int((shoulder_y + waist_y) / 2)),
+    ], fill=(0, 0, 0, 20))
+    sd.polygon([
+        (cx + waist_hw * 0.65, int((shoulder_y + waist_y) / 2)),
+        (cx + bust_hw * 0.65, int((shoulder_y + waist_y) / 2)),
+        (cx + hip_hw * 0.65, hip_y),
+        (cx + waist_hw * 0.75, hip_y),
+    ], fill=(0, 0, 0, 24))
 
-    # ---- legs ----
+    # ------------------------------------------------------------------
+    # Arms (upper + forearm, slightly bent)
+    # ------------------------------------------------------------------
+    arm_w = int(w * 0.045 * scale)
+    arm_len = int((waist_y - shoulder_y) * 1.05)
     for side in (-1, 1):
-        lx = cx + side * int(hip_hw * 0.55)
-        # thigh
-        draw.polygon([
-            (lx - thigh_hw, hip_y),
-            (lx + thigh_hw, hip_y),
-            (lx + knee_hw,  knee_y),
-            (lx - knee_hw,  knee_y),
-        ], fill=skin)
-        # shin
-        draw.polygon([
-            (lx - knee_hw,  knee_y),
-            (lx + knee_hw,  knee_y),
-            (lx + ankle_hw, ankle_y),
-            (lx - ankle_hw, ankle_y),
-        ], fill=skin)
+        ax = cx + side * int(shoulder_hw * 1.02)
+        ay = shoulder_y + int(arm_len * 0.5)
+        draw.ellipse([ax - arm_w, ay - int(arm_len * 0.5),
+                      ax + arm_w, ay + int(arm_len * 0.5)], fill=skin)
+        bx = cx + side * int(shoulder_hw * 1.45)
+        by = waist_y + int(arm_len * 0.15)
+        draw.ellipse([bx - int(arm_w * 0.85), by - int(arm_len * 0.35),
+                      bx + int(arm_w * 0.85), by + int(arm_len * 0.35)], fill=skin)
+        sd.ellipse([ax + side * int(arm_w * 0.4), ay - int(arm_len * 0.45),
+                    ax + side * int(arm_w * 1.1), ay + int(arm_len * 0.45)],
+                   fill=(0, 0, 0, 18))
 
-    # ---- subtle body shading ----
-    shading = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shading)
-    for side, xs in ((-1, cx - shoulder_hw), (1, cx + shoulder_hw - 30)):
-        sd.rectangle([xs, shoulder_y, xs + 30, ankle_y],
-                     fill=(0, 0, 0, 18))
-    img = Image.alpha_composite(img, shading)
+    # ------------------------------------------------------------------
+    # Legs (thigh + shin) + feet
+    # ------------------------------------------------------------------
+    for side in (-1, 1):
+        lx = cx + side * int(hip_hw * 0.52)
+        draw.polygon([(lx - thigh_hw, hip_y),
+                      (lx + thigh_hw, hip_y),
+                      (lx + knee_hw, knee_y),
+                      (lx - knee_hw, knee_y)], fill=skin)
+        draw.polygon([(lx - knee_hw, knee_y),
+                      (lx + knee_hw, knee_y),
+                      (lx + ankle_hw, ankle_y),
+                      (lx - ankle_hw, ankle_y)], fill=skin)
+        sx = lx + side * int(thigh_hw * 0.5)
+        sd.polygon([(sx, hip_y), (sx + int(thigh_hw * 0.6), hip_y),
+                    (sx + int(knee_hw * 0.6), knee_y), (sx, knee_y)], fill=(0, 0, 0, 18))
+        foot_w = int(w * 0.035 * scale)
+        fx = cx + side * int(hip_hw * 0.5)
+        draw.ellipse([fx - foot_w, ankle_y - int(foot_w * 0.6),
+                      fx + foot_w, ankle_y + int(foot_w * 0.6)], fill=skin_dark)
+
+    # Apply shading for 3D volume
+    img = Image.alpha_composite(img, shade)
 
     geom = dict(
         cx=cx,
@@ -666,76 +698,80 @@ def _generate_with_pollinations(
             "Use the original garment colors and reproduce the visible print, contrast borders, and color blocks as closely as possible."
         )
 
-    # 5. Build the ultra-precise prompt
+    # 5. Build the photorealistic prompt
+    #    Flux-realism responds best to: camera lens spec, lighting style, skin detail,
+    #    pose naturalness, and explicit "photograph" framing — NOT imperative commands.
     if notes:
         design_directive = (
-            f"PRIORITY CUSTOM MODIFICATIONS by client: '{notes}'. "
-            f"Apply ALL these modifications to the garment while keeping the base design from the reference."
+            f"The garment has been customised as follows: {notes}. "
+            f"Incorporate every modification while preserving the base construction."
         )
     else:
         design_directive = ""
 
+    view_desc = VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS["front"])
+
     prompt = (
+        # Camera / medium — anchors Flux in photographic space
+        "RAW photo, 85mm portrait lens, f/2.8 aperture, ISO 400, sharp focus on garment and face, "
+        "natural depth of field, true-to-life colours, no digital painting, no illustration. "
         # Subject
-        f"EXACT REPLICA fashion photograph: a real adult Black African woman with natural beautiful face, "
-        f"styled natural hair, realistic skin with natural pores, wearing THIS EXACT GARMENT from the reference image. "
-        # Garment precision
-        f"VISIBLE GARMENT DETAILS TO PRESERVE: {garment_detail}. "
-        f"Match the visible cut and silhouette, "
-        f"exact collar or neckline shape, exact sleeve length and style, exact hem length, "
-        f"exact waist design, exact pocket placement, exact button or zip details, "
-        f"exact embroidery or applique, exact wax print pattern or fabric motif, "
-        f"exact contrast piping or border trim color, exact peplum or flounce details. "
-        # Color precision
+        f"Full-body editorial fashion photograph of a real Black African woman, "
+        f"age 24, smooth dark skin with natural pores and realistic skin texture, "
+        f"high cheekbones, natural almond-shaped eyes, relaxed confident expression, "
+        f"styled natural hair, {body_proportion}. "
+        # Garment
+        f"She is wearing: {garment_detail}. "
         f"{color_instruction} "
-        # Fabric
-        f"The garment is made of {fabric_instruction}. "
-        # Custom notes
-        f"{design_directive} "
-        # Body
-        f"The model has a {body_proportion}. "
-        f"Camera view: {VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS['front'])}. "
-        f"Keep the same garment design and body size for this requested angle. "
-        f"Full body visible from head to toe. Natural human anatomy, realistic hands and fingers. "
-        f"The woman is PHYSICALLY WEARING the garment on her body — fabric drapes naturally over her real body shape. "
-        # Scene
-        f"Setting: bright elegant boutique dressing room, cream walls, warm parquet floor, "
-        f"bright, evenly exposed professional soft studio lighting, accurate natural garment colors, no harsh shadows and no underexposure. "
-        f"The model poses naturally for the requested angle, with face direction appropriate to that view. "
-        # Quality
-        f"Vogue editorial fashion photography, 8K resolution, hyperrealistic, sharp fabric texture detail, "
-        f"photographic quality. NO mannequins, NO flat lay, NO ghost mannequin — only a real living woman."
+        f"Fabric: {fabric_instruction}. "
+        f"{design_directive}"
+        # Fit and pose
+        f"The garment fits her body perfectly — fabric drapes and creases naturally over her curves. "
+        f"She is standing in a relaxed model pose, weight shifted slightly to one hip, "
+        f"hands loosely at her sides. {view_desc.capitalize()}. "
+        f"Entire figure visible from head to toe including feet. "
+        # Scene / lighting
+        "Setting: upscale Lagos fashion boutique with white plaster walls, "
+        "warm herringbone parquet floor, and a large softbox key light from the upper-left "
+        "creating soft even illumination with a gentle fill from the right — no harsh shadows, "
+        "no blown highlights, well-exposed skin and fabric. "
+        # Quality anchors
+        "Vogue West Africa editorial quality, photorealistic, sharp fabric texture, "
+        "realistic human anatomy, natural hands and fingers, "
+        "no mannequin, no flat lay, no CGI render, no cartoon."
     )
 
     seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}_{notes}_{garment_detail[:30]}")) % 900000 + 10000
 
-    # Use POST to /generate — the prompt travels in the request body with no URL length limit.
+    # POST to /generate so the prompt goes in the body (no URL length limit).
+    # Use flux-realism model for maximum photographic realism.
     post_url = "https://image.pollinations.ai/generate"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "User-Agent": "OmafransCouture/2.0",
-        # Close the connection after each request to prevent keep-alive connection
-        # reuse from a prior GET to /prompt/... which would corrupt the POST path.
-        "Connection": "close",
+        "Connection": "close",  # prevents keep-alive pool from corrupting the POST path
     }
 
     last_error = None
-    # Try seed_base first, then seed_base+1 as retry — gives two chances against
-    # intermittent load-balancer 404s on the /generate POST path.
-    for seed in (seed_base, seed_base + 1, seed_base + 2):
+    for attempt, seed in enumerate((seed_base, seed_base + 1, seed_base + 2)):
+        if attempt > 0:
+            # Pollinations rate-limits ~1 image per 45 s on standard keys.
+            # Wait before retrying to avoid hitting the cooldown 404.
+            logger.info("Waiting 50s before retry (Pollinations rate-limit cooldown)...")
+            time.sleep(50)
         payload = {
             "prompt": prompt,
-            "model": "flux",
+            "model": "flux-realism",   # photorealistic model — far more lifelike than base flux
             "width": 768,
             "height": 1024,
             "nologo": True,
             "seed": seed,
-            "enhance": True,
+            "enhance": False,          # disable: enhance over-stylises and reduces realism
         }
         try:
-            # Use a fresh session for each attempt to avoid connection-pool reuse
-            # corruption (prior GET to /prompt/... can cause POST to hit /prompt/generate).
+            # Fresh session every attempt — prevents connection-pool reuse corruption
+            # where a prior GET to /prompt/... causes POST to land on /prompt/generate.
             with requests.Session() as sess:
                 resp = sess.post(post_url, json=payload, headers=headers, timeout=90)
             if resp.status_code == 200 and resp.content:
@@ -746,15 +782,15 @@ def _generate_with_pollinations(
                         out = io.BytesIO()
                         im.convert("RGB").save(out, format="PNG")
                     logger.info(
-                        "Pollinations Flux generated image successfully (format=%s).",
-                        image_format,
+                        "Pollinations flux-realism generated image (format=%s, seed=%s).",
+                        image_format, seed,
                     )
                     return out.getvalue()
                 except (UnidentifiedImageError, OSError):
                     content_type = resp.headers.get("Content-Type", "unknown")
                     last_error = (
                         f"Pollinations returned non-image content "
-                        f"(HTTP 200, content type {content_type})."
+                        f"(HTTP 200, content-type {content_type})."
                     )
                     logger.warning("%s", last_error)
             elif resp.status_code in (401, 403):
@@ -817,20 +853,20 @@ def _generate_with_gemini(
 
     view_direction = VIEW_DESCRIPTIONS.get(view, VIEW_DESCRIPTIONS["front"])
     prompt = (
-        "Edit the supplied garment reference into one photorealistic, full-length luxury fashion fitting photograph for Omafrans Couture. "
-        "Use the uploaded image as the visual source of truth for the garment. Preserve its visible construction, silhouette, "
-        "print motifs, color blocks, trims, and embellishments as closely as possible; do not invent a replacement design. "
+        "RAW photo, 85mm portrait lens, f/2.8, ISO 400, natural depth of field, true-to-life colours. "
+        "Full-body editorial fashion photograph of a real Black African woman, smooth dark skin, "
+        "natural hair, relaxed confident model pose, weight shifted to one hip, standing in a bright "
+        "upscale boutique fitting room with white walls and warm parquet floor, soft even studio lighting. "
+        "Use the uploaded garment image as the exact visual reference — recreate its construction, "
+        "silhouette, fabric, print motifs, colour blocks, trims, and embellishments faithfully. "
         f"{garment_intro} "
-        "Show one person from head to toe, with a visible natural face and realistic human anatomy, "
-        "hands, proportions, skin, and fabric folds. The person must be the "
-        "main subject and the garment must be clearly visible. Compose a "
-        f"single vertical 3:4 editorial photograph from a {view_direction}. "
-        "Use a bright, evenly lit cream boutique fitting room, soft balanced studio lighting, "
-        "natural exposure, and accurate vivid garment colors; do not make the image dark or moody. "
-        f"Selected size: {size}. Fabric preference: {fabric}. "
-        f"Selected color tone: {COLOUR_DESCRIPTIONS.get(colour_filter, 'the original garment colors')}. "
-        "Apply the selected color tone to the garment only; keep skin, hair, background, and lighting colors unchanged. "
-        f"{f'Mandatory client specifications: {notes}.' if notes else ''}"
+        "Entire figure visible head to toe. Realistic human anatomy, natural hands and fingers, "
+        f"realistic fabric folds and drape. {view_direction.capitalize()}. "
+        f"Size: {size}. Fabric: {fabric}. "
+        f"Colour: {COLOUR_DESCRIPTIONS.get(colour_filter, 'original garment colours')}. "
+        "Apply colour to garment only — do not change skin, hair, or background. "
+        f"{f'Client modifications: {notes}.' if notes else ''} "
+        "Vogue West Africa editorial quality, photorealistic, no mannequin, no flat lay, no CGI."
     )
 
     model = "gemini-3.1-flash-image"
