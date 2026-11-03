@@ -493,7 +493,7 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
 .quote:disabled{opacity:.45;cursor:not-allowed}
 .quote:disabled:hover{background:rgba(212,255,0,.1);color:var(--acid)}
 .room-sizes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.room-sizes button{background:none;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:8px 0;font:inherit;font-size:.78rem;color:rgba(255,255,255,.7);cursor:pointer;transition:.2s}
+.room-sizes button{background:none;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:8px 0;font:inherit;font-size:.75rem;color:rgba(255,255,255,.7);cursor:pointer;transition:.2s}
 .room-sizes button:hover{border-color:var(--acid);color:#fff}
 .room-sizes button.on{background:var(--acid);border-color:var(--acid);color:#000}
 .size-info{font-size:.66rem;color:rgba(255,255,255,.6);margin:10px 0 18px;line-height:1.5}
@@ -521,7 +521,7 @@ a.dash-page-link:hover{border-color:var(--acid);color:var(--acid)}
   .fabrics{flex-direction:row;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
   .fabrics::-webkit-scrollbar{display:none}
   .fabric{flex:0 0 130px}
-  .room-sizes{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .room-sizes{grid-template-columns:repeat(3,minmax(0,1fr))}
   .palette-nav{gap:4px 14px}
   .pal{gap:10px}
   .pal button{width:32px;height:32px}

@@ -61,12 +61,15 @@ ANKLE_FRAC = 0.93         # ankle y
 
 # Size scale multipliers (waist/hip width)
 SIZE_SCALES = {
-    "XS": 0.82,
-    "S":  0.91,
-    "M":  1.00,
-    "L":  1.09,
-    "XL": 1.18,
+    "XS":  0.82,
+    "S":   0.91,
+    "M":   1.00,
+    "L":   1.09,
+    "XL":  1.18,
     "2XL": 1.30,
+    "3XL": 1.44,
+    "4XL": 1.58,
+    "5XL": 1.72,
 }
 
 # Fabric colour filter (R, G, B shift, brightness)
@@ -109,26 +112,25 @@ COLOUR_TINTS: dict[str, Tuple[int, int, int, int]] = {
 
 def _room_background(w: int, h: int) -> Image.Image:
     """
-    Render a high-end dressing room background:
-    - warm marble / parquet floor
-    - tall, dark panelled walls
-    - soft key light from upper-left
-    - subtle fill light from right
-    - floor reflection strip
+    Render a bright, airy dressing room background:
+    - light warm cream/beige walls
+    - soft parquet floor
+    - gentle spotlight from above
     """
-    bg = Image.new("RGB", (w, h), (12, 10, 18))
+    bg = Image.new("RGB", (w, h), (240, 232, 220))
     draw = ImageDraw.Draw(bg)
 
-    # --- wall gradient (dark charcoal with warm tint) ---
     wall_h = int(h * 0.72)
+
+    # Light warm wall gradient
     for y in range(wall_h):
         t = y / wall_h
-        r = int(22 + t * 18)
-        g = int(18 + t * 12)
-        b = int(28 + t * 10)
+        r = int(238 - t * 12)
+        g = int(228 - t * 10)
+        b = int(215 - t * 8)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
 
-    # --- wall panels (architectural detail) ---
+    # Subtle wall panels
     panel_cols = 3
     pw = w // panel_cols
     for col in range(panel_cols):
@@ -136,52 +138,36 @@ def _room_background(w: int, h: int) -> Image.Image:
         x1 = x0 + pw - 40
         y0 = 30
         y1 = wall_h - 30
-        for line_w, alpha in [(3, 60), (1, 40)]:
-            draw.rectangle([x0, y0, x1, y1],
-                           outline=(80, 70, 90, alpha), width=line_w)
-        # inner bevel
-        draw.rectangle([x0 + 10, y0 + 10, x1 - 10, y1 - 10],
-                       outline=(55, 48, 65), width=1)
+        draw.rectangle([x0, y0, x1, y1], outline=(200, 190, 178), width=2)
+        draw.rectangle([x0 + 10, y0 + 10, x1 - 10, y1 - 10], outline=(210, 200, 188), width=1)
 
-    # --- floor gradient (warm parquet) ---
+    # Warm parquet floor
     for y in range(wall_h, h):
         t = (y - wall_h) / (h - wall_h)
-        r = int(45 + t * 20)
-        g = int(35 + t * 14)
-        b = int(22 + t * 10)
+        r = int(195 + t * 15)
+        g = int(168 + t * 10)
+        b = int(125 + t * 8)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
 
-    # --- floor wood planks ---
-    for i in range(6):
-        py = wall_h + i * ((h - wall_h) // 6)
-        draw.line([(0, py), (w, py)], fill=(60, 45, 28), width=1)
+    # Floor planks
+    for i in range(8):
+        py = wall_h + i * ((h - wall_h) // 8)
+        draw.line([(0, py), (w, py)], fill=(170, 145, 105), width=1)
 
-    # --- key light (soft spotlight from top-centre) ---
+    # Soft key spotlight from above
     spot = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     sd = ImageDraw.Draw(spot)
     cx, cy = w // 2, 0
-    r_light = int(w * 0.55)
+    r_light = int(w * 0.6)
     for r in range(r_light, 0, -4):
-        alpha = int(38 * (1 - r / r_light) ** 2)
-        sd.ellipse([cx - r, cy - r, cx + r, cy + r],
-                   fill=(255, 240, 200, alpha))
+        alpha = int(28 * (1 - r / r_light) ** 2)
+        sd.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 248, 230, alpha))
     bg = Image.alpha_composite(bg.convert("RGBA"), spot).convert("RGB")
 
-    # --- fill light (cold, right side) ---
-    fill = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    fd = ImageDraw.Draw(fill)
-    for r in range(int(w * 0.4), 0, -4):
-        alpha = int(14 * (1 - r / (w * 0.4)) ** 2)
-        fd.ellipse([w - r, int(h * 0.2) - r, w + r, int(h * 0.2) + r],
-                   fill=(180, 200, 255, alpha))
-    bg = Image.alpha_composite(bg.convert("RGBA"), fill).convert("RGB")
-
-    # --- floor reflection strip ---
-    floor_y = wall_h
-    for dy in range(60):
-        alpha = int(40 * (1 - dy / 60))
-        draw.line([(0, floor_y + dy), (w, floor_y + dy)],
-                  fill=(200, 180, 140, alpha))
+    # Floor highlight strip at wall/floor join
+    for dy in range(30):
+        alpha = int(20 * (1 - dy / 30))
+        draw.line([(0, wall_h + dy), (w, wall_h + dy)], fill=(255, 240, 200, alpha))
 
     return bg
 
@@ -383,24 +369,24 @@ def _apply_dress(
 
 
 def _add_room_effects(img: Image.Image, w: int, h: int) -> Image.Image:
-    """Add vignette, subtle grain and mirror floor reflection."""
-    # vignette
+    """Add very light vignette and subtle floor reflection."""
+    # Gentle vignette — much lighter than before
     vig = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     vd = ImageDraw.Draw(vig)
-    for r in range(max(w, h), 0, -4):
-        alpha = int(130 * (r / max(w, h)) ** 3)
+    for r in range(max(w, h), 0, -6):
+        alpha = int(55 * (r / max(w, h)) ** 4)
         vd.ellipse(
             [w // 2 - r, h // 2 - r, w // 2 + r, h // 2 + r],
-            outline=(0, 0, 0, alpha), width=4
+            outline=(0, 0, 0, alpha), width=6
         )
     img = Image.alpha_composite(img.convert("RGBA"), vig).convert("RGB")
 
-    # floor reflection (bottom 8%)
-    refl_h = int(h * 0.08)
+    # Subtle floor reflection (bottom 6%)
+    refl_h = int(h * 0.06)
     floor_strip = img.crop((0, h - refl_h * 2, w, h - refl_h))
     floor_strip = floor_strip.transpose(Image.FLIP_TOP_BOTTOM)
-    floor_strip = ImageEnhance.Brightness(floor_strip).enhance(0.35)
-    floor_strip = floor_strip.filter(ImageFilter.GaussianBlur(3))
+    floor_strip = ImageEnhance.Brightness(floor_strip).enhance(0.45)
+    floor_strip = floor_strip.filter(ImageFilter.GaussianBlur(2))
     img.paste(floor_strip, (0, h - refl_h))
 
     return img
@@ -449,12 +435,15 @@ COLOUR_DESCRIPTIONS: dict[str, str] = {
 }
 
 SIZE_PROPORTIONS: dict[str, str] = {
-    "XS": "petite, slender XS model proportions (Bust 80cm, Waist 62cm, Hips 86cm) with narrow waist and sleek fit",
-    "S":  "lean, toned S model proportions (Bust 85cm, Waist 67cm, Hips 91cm) with slender physique",
-    "M":  "classic couture M model proportions (Bust 90cm, Waist 72cm, Hips 96cm) with balanced natural curves",
-    "L":  "curvaceous L model proportions (Bust 96cm, Waist 78cm, Hips 102cm) with fuller bust and feminine hips",
-    "XL": "full-figured XL model proportions (Bust 103cm, Waist 85cm, Hips 109cm) with voluptuous curves and fuller body shape",
-    "2XL":"plus-size 2XL model proportions (Bust 111cm, Waist 93cm, Hips 117cm) with rich full-figured curves and generous natural shape",
+    "XS": "petite slender XS frame, Bust 80cm Waist 62cm Hips 86cm, very narrow waist and slim fit",
+    "S":  "lean toned S frame, Bust 85cm Waist 67cm Hips 91cm, slender athletic build",
+    "M":  "classic M frame, Bust 90cm Waist 72cm Hips 96cm, balanced natural feminine curves",
+    "L":  "curvaceous L frame, Bust 96cm Waist 78cm Hips 102cm, fuller bust prominent feminine hips",
+    "XL": "full-figured XL frame, Bust 103cm Waist 85cm Hips 109cm, voluptuous curves generous hips",
+    "2XL":"plus-size 2XL frame, Bust 111cm Waist 93cm Hips 117cm, richly curvy full-figured body",
+    "3XL":"chubby 3XL plus-size frame, Bust 120cm Waist 102cm Hips 126cm, chubby rounder belly soft arms and thighs",
+    "4XL":"fat 4XL plus-size frame, Bust 130cm Waist 112cm Hips 136cm, visibly fat round belly large arms heavy thighs",
+    "5XL":"very fat 5XL plus-size frame, Bust 142cm Waist 124cm Hips 148cm, very fat body large round belly very heavy arms thick thighs wide hips",
 }
 
 
@@ -603,113 +592,129 @@ def _generate_with_pollinations(
     notes: str,
 ) -> bytes:
     """
-    Generate a photorealistic, human-worn fashion photograph using Pollinations.ai (Flux)
-    by faithfully recreating the exact uploaded garment on a real human model or customizing it
-    strictly according to the client's design notes.
+    Generate a photorealistic fashion photograph using Pollinations.ai (Flux).
+    The prompt is engineered to reproduce the EXACT uploaded garment 100% faithfully.
     """
     api_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
     if not api_key:
         raise ImageGenerationError(
-            "Pollinations is not configured. Set POLLINATIONS_API_KEY in .env and restart the server."
+            "Pollinations is not configured. Set POLLINATIONS_API_KEY in .env."
         )
 
-    # 1. Vision inspection: pass notes so the vision analysis adapts the uploaded reference to user specifications
+    # 1. Deep vision analysis of the uploaded garment
     garment_detail = _analyze_garment_vision(dress_bytes, api_key, notes=notes)
 
     if not garment_detail:
         if notes:
-            garment_detail = f"custom couture outfit strictly featuring: {notes}"
+            garment_detail = f"bespoke couture outfit with these exact details: {notes}"
         else:
             silhouette, detected_color = _detect_garment_colors(dress_bytes)
-            garment_detail = f"bespoke {detected_color} {silhouette} with tailored couture stitching and crisp structure"
+            garment_detail = f"{detected_color} {silhouette}"
 
-    # 2. Body sizing description
+    # 2. Body size
     size_key = size.upper()
     body_proportion = SIZE_PROPORTIONS.get(
         size_key,
-        f"tailored to size {size_key} model body proportions with natural feminine curves"
+        f"size {size_key} body proportions"
     )
 
-    # 3. Color handling
+    # 3. Fabric texture instruction
+    fabric_instruction = {
+        "Premium Gabardine": "woven gabardine fabric with crisp structured drape and subtle diagonal twill texture",
+        "Organic Cotton":    "soft organic cotton fabric with natural matte finish and gentle fabric folds",
+        "Premium Satin":     "luxurious satin fabric with smooth high sheen and glossy light reflections",
+        "Fine Jersey":       "stretchy fine jersey fabric that clings to body curves with fluid drape",
+        "Premium Linen":     "premium linen fabric with natural slub texture and relaxed refined drape",
+    }.get(fabric, f"{fabric} fabric texture and finish")
+
+    # 4. Colour override
     chosen_color = COLOUR_DESCRIPTIONS.get(colour_filter, "")
-    if colour_filter != "none" and chosen_color:
+    if colour_filter and colour_filter != "none" and chosen_color:
         color_instruction = (
-            f"The garment is rendered in a {chosen_color} color tone, "
-            f"while preserving all custom tailored cuts, seams, buttons, and design features."
+            f"The garment COLOR must be entirely changed to {chosen_color}. "
+            f"Keep every cut, seam, embroidery, pattern print, and structural detail IDENTICAL to the reference — only the color changes to {chosen_color}."
         )
-    elif notes:
-        color_instruction = f"Strictly apply all colors, textures, and details requested by the client: '{notes}'."
     else:
-        color_instruction = "Preserve the exact original colors, shades, and patterns of the garment faithfully."
+        color_instruction = (
+            "Reproduce the EXACT original colors of the garment with 100% fidelity — "
+            "every color, print pattern, wax print motif, contrast border, and color block must match the reference perfectly."
+        )
 
-    # 4. Integrate User Description / Design Notes with supreme priority
+    # 5. Build the ultra-precise prompt
     if notes:
-        garment_intro = (
-            f"a bespoke couture outfit strictly incorporating these client design requirements: '{notes}'. "
-            f"Outfit details: {garment_detail}."
-        )
-        custom_directive = (
-            f"MANDATORY CLIENT SPECIFICATION: Strictly execute all requested details from '{notes}'. "
-            f"Every specified cut, neckline, sleeve style, length, belt, color, and embellishment must be clearly visible on the garment."
+        design_directive = (
+            f"PRIORITY CUSTOM MODIFICATIONS by client: '{notes}'. "
+            f"Apply ALL these modifications to the garment while keeping the base design from the reference."
         )
     else:
-        garment_intro = f"this exact outfit: {garment_detail}."
-        custom_directive = ""
+        design_directive = ""
 
-    prompt_parts = [
-        f"Editorial full-length luxury fashion photograph of an elegant realistic couture female model for Omafrans Couture wearing {garment_intro}",
-    ]
-    if custom_directive:
-        prompt_parts.append(custom_directive)
+    prompt = (
+        # Subject
+        f"EXACT REPLICA fashion photograph: a real adult Black African woman with natural beautiful face, "
+        f"styled natural hair, realistic skin with natural pores, wearing THIS EXACT GARMENT from the reference image. "
+        # Garment precision
+        f"GARMENT EXACT DETAILS TO REPRODUCE 100%: {garment_detail}. "
+        f"Every single element must be IDENTICAL to the reference: the exact cut and silhouette, "
+        f"exact collar or neckline shape, exact sleeve length and style, exact hem length, "
+        f"exact waist design, exact pocket placement, exact button or zip details, "
+        f"exact embroidery or applique, exact wax print pattern or fabric motif, "
+        f"exact contrast piping or border trim color, exact peplum or flounce details. "
+        # Color precision
+        f"{color_instruction} "
+        # Fabric
+        f"The garment is made of {fabric_instruction}. "
+        # Custom notes
+        f"{design_directive} "
+        # Body
+        f"The model has a {body_proportion}. "
+        f"Full body visible from head to toe. Natural human anatomy, realistic hands and fingers. "
+        f"The woman is PHYSICALLY WEARING the garment on her body — fabric drapes naturally over her real body shape. "
+        # Scene
+        f"Setting: bright elegant boutique dressing room, cream walls, warm parquet floor, "
+        f"professional soft studio lighting, no harsh shadows. "
+        f"The model stands confidently, looking directly at camera, full-length editorial pose. "
+        # Quality
+        f"Vogue editorial fashion photography, 8K resolution, hyperrealistic, sharp fabric texture detail, "
+        f"photographic quality. NO mannequins, NO flat lay, NO ghost mannequin — only a real living woman."
+    )
 
-    prompt_parts.extend([
-        "She is an authentic living adult woman with gorgeous expressive face looking directly into the camera, styled hair, natural skin texture with realistic pores, realistic human hands and fingers, standing full-body from head to toe.",
-        "The model is physically wearing the complete clothing ensemble naturally on her human body.",
-        "ABSOLUTELY NO MANNEQUINS, NO FLAT LAY, NO 2D CUTOUTS, NO GHOST MANNEQUINS, NO FLOATING CLOTHING — only a real living human woman wearing the clothes.",
-        f"{color_instruction}",
-        "Faithfully replicate every cut, fabric pattern, neckline border, sleeve cuff, and tailoring detail of the reference ensemble.",
-        f"Fabric finish: {fabric} with authentic textile creases and couture stitching.",
-        f"Model body shape: {body_proportion}.",
-        "Setting: high-end haute couture fitting salon with warm architectural wood panelling and soft studio key lighting. Vogue editorial fashion photography, 8k, sharp focus, hyperrealistic."
-    ])
+    encoded = urllib.parse.quote(prompt)
+    seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}_{notes}_{garment_detail[:30]}")) % 900000 + 10000
 
-    full_prompt = " ".join(p for p in prompt_parts if p)
-    encoded = urllib.parse.quote(full_prompt)
-
-    # Use seed derived from cloth + size + color + notes so any change in description immediately yields a fresh tailored generation!
-    seed_base = abs(hash(f"{size}_{colour_filter}_{fabric}_{notes}")) % 900000 + 10000
     endpoints = [
-        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base}&key={api_key}",
-        f"https://gen.pollinations.ai/image/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base + 3}&key={api_key}",
+        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base}&enhance=true",
+        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=768&height=1024&nologo=true&seed={seed_base+1}&enhance=true",
     ]
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "User-Agent": "OmafransCouture/1.0",
+        "User-Agent": "OmafransCouture/2.0",
     }
 
     last_error = None
     for url in endpoints:
         try:
-            resp = requests.get(url, headers=headers, timeout=60)
-            if resp.status_code == 200 and resp.content and resp.content.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
+            resp = requests.get(url, headers=headers, timeout=90)
+            if resp.status_code == 200 and resp.content and resp.content[:4] in (b"\xff\xd8\xff\xe0", b"\x89PNG", b"\xff\xd8"):
                 with Image.open(io.BytesIO(resp.content)) as im:
                     im.load()
                     out = io.BytesIO()
                     im.convert("RGB").save(out, format="PNG")
-                    logger.info("Successfully generated fitting image with Pollinations Flux.")
+                    logger.info("Pollinations Flux generated image successfully.")
                     return out.getvalue()
             elif resp.status_code in (401, 403):
-                raise ImageGenerationError("Pollinations rejected the API key. Check POLLINATIONS_API_KEY in .env.")
+                raise ImageGenerationError("Pollinations rejected the API key. Check POLLINATIONS_API_KEY.")
             elif resp.status_code == 429:
-                raise ImageGenerationError("Pollinations rate limit reached. Please wait a moment and try again.")
+                raise ImageGenerationError("Pollinations rate limit. Please wait a moment and try again.")
             else:
                 last_error = f"HTTP {resp.status_code}: {resp.text[:120]}"
-        except requests.Timeout as exc:
+                logger.warning("Pollinations attempt failed: %s", last_error)
+        except requests.Timeout:
             last_error = "Pollinations request timed out."
-            logger.warning("Pollinations timeout for %s: %s", url, exc)
+            logger.warning("Pollinations timeout for endpoint %s", url)
         except requests.RequestException as exc:
             last_error = str(exc)
-            logger.warning("Pollinations request failed for %s: %s", url, exc)
+            logger.warning("Pollinations request error: %s", exc)
 
     raise ImageGenerationError(f"Pollinations generation failed: {last_error or 'No response'}")
 

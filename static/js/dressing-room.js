@@ -1,18 +1,18 @@
 /**
- * dressing-room.js  — Omafrans Couture AI Dressing Room
+ * dressing-room.js  — Omafrans Couture AI Dressing Room v3
+ * True 3D: only the model mesh rotates, background stays fixed.
+ * Colour tones applied directly to the mesh material, not CSS filter.
  * Requires Three.js loaded before this script.
  */
 (function () {
   'use strict';
 
-  /* ── guard ─────────────────────────────────────────────────────── */
   if (!document.getElementById('roomFile')) return;
 
-  /* ── resolve the API endpoint ──────────────────────────────────── */
-  var API_URL = (window.DR_GENERATE_URL || '/api/dressing-room/generate/');
-  console.log('[DR] API endpoint:', API_URL);
+  var API_URL = window.DR_GENERATE_URL || '/api/dressing-room/generate/';
+  console.log('[DR] API:', API_URL);
 
-  /* ── element refs ───────────────────────────────────────────────── */
+  /* ── elements ─────────────────────────────────────────────────── */
   var elFile        = document.getElementById('roomFile');
   var elThumb       = document.getElementById('roomThumb');
   var elDress2D     = document.getElementById('roomDress');
@@ -20,8 +20,6 @@
   var elFitBox      = document.getElementById('fitBox');
   var elCanvas      = document.getElementById('canvas');
   var elThreeMount  = document.getElementById('threeMount');
-  var elGenerated   = document.getElementById('generatedPreview') || document.getElementById('roomGenerated');
-  var elDragHint    = document.getElementById('roomDragHint') || document.querySelector('.room-drag-hint');
   var elStatus      = document.getElementById('roomStatus');
   var elGenerate    = document.getElementById('generateLook');
   var elContact     = document.getElementById('roomContact');
@@ -38,8 +36,40 @@
   var elToolColor   = document.getElementById('toolColor');
   var elOverlay     = document.getElementById('roomLoadingOverlay');
   var elOverlayText = document.getElementById('roomLoadingText');
+  var elDragHint    = document.getElementById('roomDragHint') || document.querySelector('.room-drag-hint');
 
-  /* ── state ───────────────────────────────────────────────────────  */
+  /* ── colour tone → THREE.Color map ───────────────────────────── */
+  /* Each entry is [r, g, b] multiplier (1 = original) */
+  var COLOUR_TO_THREE = {
+    'none':                                                   [1,    1,    1   ],
+    'grayscale(1) brightness(1.9)':                           [1.9,  1.9,  1.9 ],  // ivory — brighten + desaturate handled below
+    'grayscale(1) brightness(1.2)':                           [1.2,  1.2,  1.2 ],  // stone
+    'grayscale(1) brightness(.7)':                            [0.7,  0.7,  0.7 ],  // charcoal
+    'grayscale(1) brightness(.35)':                           [0.35, 0.35, 0.35],  // black
+    'sepia(1) brightness(1.5) saturate(.8)':                  [1.6,  1.3,  0.85],  // sand
+    'sepia(1) brightness(1.1) saturate(1.6)':                 [1.4,  1.05, 0.6 ],  // camel
+    'sepia(1) hue-rotate(-20deg) saturate(2) brightness(.8)': [1.2,  0.6,  0.3 ],  // rust
+    'sepia(1) brightness(.6) saturate(1.2)':                  [0.7,  0.4,  0.2 ],  // brown
+    'sepia(1) hue-rotate(30deg) brightness(.7) saturate(1.4)':[0.65, 0.72, 0.28],  // olive
+    'hue-rotate(-60deg) saturate(1.5)':                       [1.0,  0.2,  0.6 ],  // wine
+    'hue-rotate(60deg) saturate(1.6) brightness(.9)':         [0.2,  0.3,  1.1 ],  // navy
+    'hue-rotate(150deg) saturate(1.4) brightness(.8)':        [0.2,  0.8,  0.35],  // forest
+    'hue-rotate(-30deg) saturate(2)':                         [1.5,  0.1,  0.25],  // crimson
+    'hue-rotate(90deg) saturate(1.2) brightness(1.2)':        [0.6,  1.3,  1.7 ],  // sky
+    'hue-rotate(120deg) saturate(1.2)':                       [0.4,  0.75, 1.3 ],  // steel
+    'hue-rotate(170deg) saturate(1.3)':                       [0.2,  1.1,  1.1 ],  // teal
+    'hue-rotate(40deg) saturate(1.1) brightness(1.3)':        [1.3,  1.1,  1.7 ],  // lavender
+    'hue-rotate(200deg) saturate(1.3) brightness(1.1)':       [0.7,  1.6,  1.25],  // mint
+  };
+  /* Grayscale flag for entries that need desaturation */
+  var GRAYSCALE_KEYS = [
+    'grayscale(1) brightness(1.9)',
+    'grayscale(1) brightness(1.2)',
+    'grayscale(1) brightness(.7)',
+    'grayscale(1) brightness(.35)',
+  ];
+
+  /* ── state ────────────────────────────────────────────────────── */
   var S = {
     file:         null,
     sourceUrl:    '',
@@ -48,136 +78,112 @@
     sizeMeasure:  'Bust 90 · Waist 72 · Hips 96',
     fabric:       'Premium Gabardine',
     colour:       'none',
-    colourCSS:    '',
-    zoom:         1, x: 0, y: 0, rotY: 0, rotX: 0,
+    zoom:         1,
+    rotY:         0,
+    rotX:         0,
+    x:            0,
+    y:            0,
     hasResult:    false,
     busy:         false,
+    lastNotes:    '',
   };
 
-  var SIZE_SCALE = { XS:.84, S:.92, M:1, L:1.08, XL:1.17, '2XL':1.27 };
+  var SIZE_SCALE_2D = { XS:.84, S:.92, M:1, L:1.08, XL:1.17, '2XL':1.27, '3XL':1.40, '4XL':1.55, '5XL':1.70 };
 
-  /* ── helpers ─────────────────────────────────────────────────────── */
+  /* ── status ───────────────────────────────────────────────────── */
   function setStatus(msg, type) {
     elStatus.textContent = msg;
     elStatus.className = 'room-status' + (type ? ' room-status--' + type : '');
   }
 
   function showLoading(msg) {
-    if (elOverlayText) elOverlayText.textContent = msg || 'Generating your fitting preview…';
-    if (elOverlay) {
-      elOverlay.hidden = false;
-      elOverlay.style.display = 'flex';
-    }
+    if (elOverlayText) elOverlayText.textContent = msg || 'Generating…';
+    if (elOverlay) { elOverlay.hidden = false; elOverlay.style.display = 'flex'; }
   }
 
   function hideLoading() {
-    if (elOverlay) {
-      elOverlay.hidden = true;
-      elOverlay.style.display = 'none';
-    }
+    if (elOverlay) { elOverlay.hidden = true; elOverlay.style.display = 'none'; }
   }
 
-  function applyColorTone() {
-    var css = S.colourCSS || '';
-    if (elDress2D) elDress2D.style.filter = css;
-    if (elGenerated) elGenerated.style.filter = css;
-    if (elThreeMount) {
-      elThreeMount.style.filter = css;
-      var c = elThreeMount.querySelector('canvas');
-      if (c) c.style.filter = css;
-    }
-  }
-
+  /* ── 2-D fallback paint ───────────────────────────────────────── */
   function paint2D() {
-    var sc = SIZE_SCALE[S.sizeName] || 1;
-    elFitBox.style.transform = 'scaleX(' + sc + ')';
-    applyColorTone();
-    elFigure.style.transform = 'translate(' + S.x + 'px,' + S.y + 'px) scale(' + S.zoom + ') rotateY(' + S.rotY + 'deg) rotateX(' + S.rotX + 'deg)';
+    var sc = SIZE_SCALE_2D[S.sizeName] || 1;
+    if (elFitBox) elFitBox.style.transform = 'scaleX(' + sc + ')';
+    if (elFigure) elFigure.style.transform =
+      'translate(' + S.x + 'px,' + S.y + 'px) scale(' + S.zoom + ')';
   }
 
-  function showResult2D() {
-    if (elGenerated) {
-      elGenerated.src = S.generatedUrl;
-      elGenerated.style.filter = S.colourCSS || '';
-      elGenerated.hidden = false;
-      elGenerated.style.display = 'block';
-    } else {
-      elDress2D.src = S.generatedUrl;
-      elDress2D.style.filter = S.colourCSS || '';
-      elDress2D.hidden = false;
-    }
-    applyColorTone();
-    if (elThreeMount) {
-      elThreeMount.hidden = true;
-      elThreeMount.style.display = 'none';
-    }
-    if (elFigure) {
-      elFigure.hidden = true;
-      elFigure.style.display = 'none';
-    }
-    if (elDragHint) {
-      elDragHint.hidden = true;
-      elDragHint.style.display = 'none';
-    }
-    elCanvas.classList.remove('mode-3d');
-  }
-
-  function showResult3D() {
-    if (elGenerated) {
-      elGenerated.hidden = true;
-      elGenerated.style.display = 'none';
-    }
-    if (elFigure) {
-      elFigure.hidden = true;
-      elFigure.style.display = 'none';
-    }
-    if (elThreeMount) {
-      elThreeMount.hidden = false;
-      elThreeMount.style.display = 'block';
-    }
-    if (elDragHint) {
-      elDragHint.hidden = false;
-      elDragHint.style.display = 'flex';
-    }
-    elCanvas.classList.add('mode-3d');
-  }
-
-  /* ── Three.js ────────────────────────────────────────────────────── */
-  var T3 = null;
+  /* ── Three.js ─────────────────────────────────────────────────── */
+  var T3 = null;   // { renderer, scene, bgScene, camera, mesh, mat, bgMesh }
 
   function initThree() {
     if (!window.THREE || !elThreeMount || T3) return;
     try {
-      elThreeMount.hidden = false;
-      elThreeMount.style.display = 'block';
-      var W = elThreeMount.clientWidth  || 640;
-      var H = elThreeMount.clientHeight || 500;
-      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      var W = elThreeMount.clientWidth  || 600;
+      var H = elThreeMount.clientHeight || 520;
+
+      var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
       renderer.setSize(W, H);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.setClearColor(0x000000, 0);
+      renderer.setClearColor(0x000000, 1);
+      renderer.autoClear = false;
       elThreeMount.innerHTML = '';
       elThreeMount.appendChild(renderer.domElement);
 
+      /* ── background scene (never rotates) ── */
+      var bgScene  = new THREE.Scene();
+      var bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      var bgTex    = _makeBgTexture();
+      var bgMesh   = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.MeshBasicMaterial({ map: bgTex, depthTest: false })
+      );
+      bgScene.add(bgMesh);
+
+      /* ── foreground scene (model mesh rotates) ── */
       var scene  = new THREE.Scene();
       var camera = new THREE.PerspectiveCamera(38, W / H, 0.1, 100);
       camera.position.z = 2.8;
 
-      var key = new THREE.DirectionalLight(0xfff4e0, 1.8);
-      key.position.set(-1.5, 2.5, 2); scene.add(key);
-      var fill = new THREE.DirectionalLight(0xb4caff, 0.7);
-      fill.position.set(2, 0.5, 1); scene.add(fill);
-      var mat  = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true });
-      var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.13), mat);
+      var keyLight  = new THREE.DirectionalLight(0xfff4e0, 1.6);
+      keyLight.position.set(-1.5, 2.5, 3);
+      scene.add(keyLight);
+      var fillLight = new THREE.DirectionalLight(0xdde8ff, 0.7);
+      fillLight.position.set(2, 0.5, 1);
+      scene.add(fillLight);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+
+      /* ── model plane ── */
+      var mat  = new THREE.MeshStandardMaterial({
+        color:       0xffffff,
+        side:        THREE.FrontSide,
+        transparent: true,
+        roughness:   0.55,
+        metalness:   0.0,
+      });
+      var mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.07), mat);
       scene.add(mesh);
 
-      T3 = { renderer: renderer, scene: scene, camera: camera, mesh: mesh, mat: mat };
+      /* ── shadow plane under model ── */
+      var shadowMat  = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.12 });
+      var shadowMesh = new THREE.Mesh(new THREE.EllipseCurve ? new THREE.CircleGeometry(0.5, 32) : new THREE.PlaneGeometry(1.0, 0.18), shadowMat);
+      shadowMesh.position.set(0, -1.08, -0.01);
+      shadowMesh.rotation.x = -Math.PI / 2.2;
+      scene.add(shadowMesh);
 
+      T3 = { renderer: renderer, bgScene: bgScene, bgCamera: bgCamera,
+              scene: scene, camera: camera, mesh: mesh, mat: mat };
+
+      /* ── render loop ── */
       (function loop() {
         T3.raf = requestAnimationFrame(loop);
-        renderer.render(scene, camera);
+        renderer.clear();
+        renderer.render(bgScene, bgCamera);       // draw fixed background
+        renderer.clearDepth();
+        renderer.render(scene, camera);            // draw rotating model on top
       })();
 
+      /* ── resize observer ── */
       if (window.ResizeObserver) {
         new ResizeObserver(function () {
           var w = elThreeMount.clientWidth, h = elThreeMount.clientHeight;
@@ -187,11 +193,57 @@
           camera.updateProjectionMatrix();
         }).observe(elThreeMount);
       }
-      console.log('[DR] Three.js initialised');
-    } catch (e) {
-      console.error('[DR] Three.js init failed:', e);
+
+      console.log('[DR] Three.js ready — separate bg + model scenes');
+    } catch (err) {
+      console.error('[DR] Three.js init failed:', err);
       T3 = null;
     }
+  }
+
+  /* Generate a lightweight room background texture via canvas */
+  function _makeBgTexture() {
+    var c = document.createElement('canvas');
+    c.width = 512; c.height = 512;
+    var ctx = c.getContext('2d');
+
+    // Cream wall
+    var wallGrad = ctx.createLinearGradient(0, 0, 0, 370);
+    wallGrad.addColorStop(0,   '#ede5d8');
+    wallGrad.addColorStop(1,   '#d8ccbc');
+    ctx.fillStyle = wallGrad;
+    ctx.fillRect(0, 0, 512, 370);
+
+    // Subtle panel lines
+    ctx.strokeStyle = 'rgba(180,168,150,0.5)';
+    ctx.lineWidth = 1.5;
+    [85, 256, 427].forEach(function(cx) {
+      ctx.strokeRect(cx - 60, 20, 120, 330);
+    });
+
+    // Warm parquet floor
+    var floorGrad = ctx.createLinearGradient(0, 370, 0, 512);
+    floorGrad.addColorStop(0, '#c8a878');
+    floorGrad.addColorStop(1, '#b8946a');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, 370, 512, 142);
+
+    // Floor planks
+    ctx.strokeStyle = 'rgba(148,118,82,0.5)';
+    ctx.lineWidth = 1;
+    for (var y = 370; y < 512; y += 24) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(512,y); ctx.stroke(); }
+
+    // Soft spotlight
+    var spot = ctx.createRadialGradient(256, 0, 20, 256, 100, 300);
+    spot.addColorStop(0,   'rgba(255,248,225,0.35)');
+    spot.addColorStop(1,   'rgba(255,248,225,0)');
+    ctx.fillStyle = spot;
+    ctx.fillRect(0, 0, 512, 512);
+
+    if (THREE.CanvasTexture) return new THREE.CanvasTexture(c);
+    var t = new THREE.Texture(c);
+    t.needsUpdate = true;
+    return t;
   }
 
   function applyRot() {
@@ -200,34 +252,60 @@
     T3.mesh.rotation.x = S.rotX * Math.PI / 180;
   }
 
-  function loadTex(dataUrl, callback) {
-    if (!T3) {
-      if (callback) callback(false);
-      return;
+  /* Apply colour tone to the Three.js mesh material color (not CSS filter) */
+  function applyColourToMesh() {
+    if (!T3 || !window.THREE) return;
+    var rgb = COLOUR_TO_THREE[S.colour] || [1, 1, 1];
+    var isGray = GRAYSCALE_KEYS.indexOf(S.colour) !== -1;
+
+    if (isGray) {
+      /* For grayscale tones use a THREE.Color desaturation via shader trick —
+         we use a greyscale by setting color channels equally */
+      var v = rgb[0];
+      T3.mat.color.setRGB(v, v, v);
+    } else {
+      T3.mat.color.setRGB(
+        Math.min(rgb[0], 2),
+        Math.min(rgb[1], 2),
+        Math.min(rgb[2], 2)
+      );
     }
-    new THREE.TextureLoader().load(
-      dataUrl,
-      function (tex) {
-        if (THREE.SRGBColorSpace !== undefined) {
-          tex.colorSpace = THREE.SRGBColorSpace;
-        } else if (THREE.sRGBEncoding !== undefined) {
-          tex.encoding = THREE.sRGBEncoding;
-        }
-        T3.mat.map = tex;
-        T3.mat.needsUpdate = true;
-        applyRot();
-        console.log('[DR] 3D texture loaded');
-        if (callback) callback(true);
-      },
-      undefined,
-      function (err) {
-        console.warn('[DR] 3D texture load failed:', err);
-        if (callback) callback(false);
-      }
-    );
+    T3.mat.needsUpdate = true;
   }
 
-  /* ── file load ───────────────────────────────────────────────────── */
+  function loadTex(dataUrl, callback) {
+    if (!T3) { if (callback) callback(false); return; }
+    new THREE.TextureLoader().load(dataUrl, function (tex) {
+      if (THREE.SRGBColorSpace !== undefined)  tex.colorSpace = THREE.SRGBColorSpace;
+      else if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
+      T3.mat.map = tex;
+      T3.mat.needsUpdate = true;
+      applyRot();
+      applyColourToMesh();
+      console.log('[DR] Texture loaded into 3D mesh');
+      if (callback) callback(true);
+    }, undefined, function (err) {
+      console.warn('[DR] Texture load error:', err);
+      if (callback) callback(false);
+    });
+  }
+
+  /* ── show/hide helpers ─────────────────────────────────────────── */
+  function show3D() {
+    if (elFigure)     { elFigure.hidden = true;     elFigure.style.display = 'none'; }
+    if (elThreeMount) { elThreeMount.hidden = false; elThreeMount.style.display = 'block'; }
+    if (elDragHint)   { elDragHint.hidden = false;   elDragHint.style.display = 'flex'; }
+    elCanvas.classList.add('mode-3d');
+  }
+
+  function show2DFigure() {
+    if (elFigure)     { elFigure.hidden = false; elFigure.style.display = ''; }
+    if (elThreeMount) { elThreeMount.hidden = true; elThreeMount.style.display = 'none'; }
+    if (elDragHint)   { elDragHint.hidden = true; elDragHint.style.display = 'none'; }
+    elCanvas.classList.remove('mode-3d');
+  }
+
+  /* ── file load ─────────────────────────────────────────────────── */
   function loadFile(file) {
     if (!file) return;
     if (!file.type.startsWith('image/')) { setStatus('Please choose an image file.', 'warn'); return; }
@@ -235,289 +313,161 @@
 
     if (S.sourceUrl)    URL.revokeObjectURL(S.sourceUrl);
     if (S.generatedUrl) URL.revokeObjectURL(S.generatedUrl);
-    S.file = file;
-    S.sourceUrl = URL.createObjectURL(file);
-    S.generatedUrl = '';
-    S.hasResult = false;
+    S.file = file; S.sourceUrl = URL.createObjectURL(file);
+    S.generatedUrl = ''; S.hasResult = false;
 
-    elDress2D.src = S.sourceUrl;
-    elDress2D.hidden = false;
-    elThumb.src = S.sourceUrl;
-    elFigure.hidden = false;
-    elFigure.style.display = '';
-    if (elGenerated) {
-      elGenerated.hidden = true;
-      elGenerated.style.display = 'none';
-    }
-    if (elThreeMount) {
-      elThreeMount.hidden = true;
-      elThreeMount.style.display = 'none';
-    }
-    if (elDragHint) {
-      elDragHint.hidden = true;
-      elDragHint.style.display = 'none';
-    }
-    elCanvas.classList.remove('mode-3d');
+    elDress2D.src = S.sourceUrl; elDress2D.hidden = false;
+    elThumb.src   = S.sourceUrl;
+    show2DFigure();
 
     elContact.disabled     = true;
     elGenerate.disabled    = false;
-    elGenerate.textContent = 'Generating…';
+    elGenerate.textContent = 'Generate preview';
     S.x = S.y = S.rotX = S.rotY = 0;
     paint2D();
-    setStatus('Dress photo uploaded — generating your realistic AI preview…', 'ok');
+    setStatus('Dress loaded. Generating AI preview…');
     console.log('[DR] File loaded:', file.name, file.size);
-
-    // Auto-generate on upload immediately!
-    autoGenerateDebounced(100);
-  }
-
-  /* ── active fetch controller ─────────────────────────────────────── */
-  var activeCtrl = null;
-
-  /* ── auto-generation debounce helper ─────────────────────────────── */
-  var autoGenTimer = null;
-  function autoGenerateDebounced(delay) {
-    if (!S.file) return;
-    if (autoGenTimer) clearTimeout(autoGenTimer);
-    autoGenTimer = setTimeout(function () {
-      if (activeCtrl && S.busy) {
-        console.log('[DR] Aborting previous generation for new request...');
-        try { activeCtrl.abort(); } catch (_) {}
-        S.busy = false;
-      }
-      if (elGenerate) {
-        elGenerate.disabled = false;
-        triggerGenerate();
-      }
-    }, delay || 200);
+    _autoGenDebounce(150);
   }
 
   elFile.addEventListener('change', function (e) { loadFile(e.target.files[0]); });
 
-  /* Interactive dropzone & thumbnail click */
-  var elFileDrop = document.getElementById('fileBoxDrop') || (elThumb ? elThumb.closest('.file-box') : null);
-  if (elFileDrop) {
-    elFileDrop.addEventListener('click', function (e) {
-      if (e.target !== elFile) elFile.click();
-    });
-    elFileDrop.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        elFile.click();
-      }
-    });
-    elFileDrop.addEventListener('dragover', function (e) {
-      e.preventDefault();
-      elFileDrop.classList.add('drag-hover');
-    });
-    elFileDrop.addEventListener('dragleave', function () {
-      elFileDrop.classList.remove('drag-hover');
-    });
-    elFileDrop.addEventListener('drop', function (e) {
-      e.preventDefault();
-      elFileDrop.classList.remove('drag-hover');
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
-        loadFile(e.dataTransfer.files[0]);
-      }
+  /* Drag-and-drop on file box */
+  var elFileBox = document.getElementById('fileBoxDrop') || (elThumb && elThumb.closest('.file-box'));
+  if (elFileBox) {
+    elFileBox.addEventListener('click', function (e) { if (e.target !== elFile) elFile.click(); });
+    elFileBox.addEventListener('dragover', function (e) { e.preventDefault(); elFileBox.classList.add('drag-hover'); });
+    elFileBox.addEventListener('dragleave', function () { elFileBox.classList.remove('drag-hover'); });
+    elFileBox.addEventListener('drop', function (e) {
+      e.preventDefault(); elFileBox.classList.remove('drag-hover');
+      if (e.dataTransfer && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
     });
   }
 
+  /* Collection "try it on" */
   function loadCollectionDress() {
     var imageUrl = document.body.dataset.tryOnImage;
     if (!imageUrl) return;
-
-    var dressName = document.body.dataset.tryOnName || 'selected collection dress';
-    setStatus('Loading ' + dressName + '…');
-    fetch(imageUrl)
-      .then(function (response) {
-        if (!response.ok) throw new Error('Image request failed (' + response.status + ').');
-        return response.blob();
-      })
-      .then(function (blob) {
-        var imageType = blob.type.indexOf('image/') === 0 ? blob.type : 'image/png';
-        var extension = imageType === 'image/jpeg' ? 'jpg'
-          : imageType === 'image/webp' ? 'webp' : 'png';
-        var file = new File([blob], 'collection-dress.' + extension, { type: imageType });
-        loadFile(file);
-      })
-      .catch(function (error) {
-        setStatus('Could not load this collection dress. Please upload an image and try again.', 'error');
-        console.error('[DR] Collection dress load failed:', error);
-      });
+    setStatus('Loading collection dress…');
+    fetch(imageUrl).then(function (r) { return r.blob(); }).then(function (blob) {
+      var ext = blob.type === 'image/jpeg' ? 'jpg' : 'png';
+      loadFile(new File([blob], 'collection-dress.' + ext, { type: blob.type }));
+    }).catch(function () { setStatus('Could not load collection dress. Upload manually.', 'warn'); });
   }
 
-  /* ── GENERATE FUNCTION ───────────────────────────────────────────── */
-  function triggerGenerate() {
-    console.log('[DR] Generate triggered. file:', S.file ? S.file.name : 'NONE', 'busy:', S.busy);
+  /* ── generate ──────────────────────────────────────────────────── */
+  var _activeCtrl = null;
+  var _genTimer   = null;
 
-    if (!S.file) {
-      setStatus('Upload a cloth photo first.', 'warn');
-      elFile.focus();
-      return;
-    }
+  function _autoGenDebounce(ms) {
+    if (_genTimer) clearTimeout(_genTimer);
+    _genTimer = setTimeout(function () {
+      if (S.file) triggerGenerate();
+    }, ms || 200);
+  }
+
+  function triggerGenerate() {
+    if (!S.file) { setStatus('Upload a dress photo first.', 'warn'); elFile.focus(); return; }
     if (S.busy) {
-      console.log('[DR] Busy — aborting prior request to regenerate.');
-      if (activeCtrl) {
-        try { activeCtrl.abort(); } catch (_) {}
-      }
+      if (_activeCtrl) try { _activeCtrl.abort(); } catch(_) {}
+      S.busy = false;
     }
 
     S.busy = true;
     elGenerate.disabled    = true;
     elGenerate.textContent = 'Generating…';
     elContact.disabled     = true;
-    showLoading('Our AI is generating your exact cloth on size ' + S.sizeName + ' model…');
-    setStatus('Analyzing cloth details and generating photorealistic model in size ' + S.sizeName + '…');
+    showLoading('AI is generating your exact garment on size ' + S.sizeName + ' model…');
+    setStatus('');
 
     var fd = new FormData();
     fd.append('dress',   S.file);
     fd.append('size',    S.sizeName);
     fd.append('fabric',  S.fabric);
     fd.append('colour',  S.colour);
-    var notesText = (elNotes.value || '').trim().slice(0, 500);
-    S.lastNotes   = notesText;
-    fd.append('notes', notesText);
+    var notesVal = (elNotes.value || '').trim().slice(0, 500);
+    S.lastNotes = notesVal;
+    fd.append('notes', notesVal);
 
-    console.log('[DR] Posting to', API_URL, '— size:', S.sizeName, 'fabric:', S.fabric, 'colour:', S.colour);
+    console.log('[DR] POST', API_URL, 'size:', S.sizeName, 'fabric:', S.fabric, 'colour:', S.colour);
 
     var ctrl = new AbortController();
-    activeCtrl = ctrl;
-    var timerID = setTimeout(function () {
-      ctrl.abort();
-      console.error('[DR] Request timed out after 85 s');
-    }, 85000);
+    _activeCtrl = ctrl;
+    var tID = setTimeout(function () { ctrl.abort(); }, 90000);
 
     fetch(API_URL, { method: 'POST', body: fd, signal: ctrl.signal })
-      .then(function (res) {
-        console.log('[DR] Response status:', res.status, res.statusText);
-        return res.text().then(function (txt) {
-          return { status: res.status, text: txt };
-        });
-      })
+      .then(function (res) { return res.text().then(function (t) { return { s: res.status, t: t }; }); })
       .then(function (obj) {
-        clearTimeout(timerID);
-        activeCtrl = null;
-        console.log('[DR] Raw response (first 120 chars):', obj.text.slice(0, 120));
+        clearTimeout(tID); _activeCtrl = null;
+        console.log('[DR] Response', obj.s, '— first 120:', obj.t.slice(0, 120));
 
         var data;
-        try { data = JSON.parse(obj.text); }
-        catch (_) { throw new Error('Non-JSON response (' + obj.status + '): ' + obj.text.slice(0, 80)); }
-
-        if (obj.status !== 200 || data.error) {
-          throw new Error(data.error || 'Server error ' + obj.status);
+        try { data = JSON.parse(obj.t); } catch (_) {
+          throw new Error('Non-JSON (' + obj.s + '): ' + obj.t.slice(0, 80));
         }
+        if (obj.s !== 200 || data.error) throw new Error(data.error || 'Server error ' + obj.s);
 
-        /* --- decode base64 PNG --- */
-        var b64    = data.image;
-        var binary = atob(b64);
-        var arr    = new Uint8Array(binary.length);
-        for (var i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-        var blob   = new Blob([arr], { type: 'image/png' });
-
+        /* decode base64 PNG */
+        var b64 = data.image, bin = atob(b64), arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        var blob = new Blob([arr], { type: 'image/png' });
         if (S.generatedUrl) URL.revokeObjectURL(S.generatedUrl);
         S.generatedUrl = URL.createObjectURL(blob);
         S.hasResult    = true;
         S.busy         = false;
 
-        console.log('[DR] Image decoded. Blob size:', blob.size, 'bytes. Showing preview...');
+        console.log('[DR] Decoded blob', blob.size, 'bytes. is_ai:', data.is_ai);
 
-        /* --- display result in 3D or fallback 2D --- */
-        var readyMsg = data.is_ai
-          ? 'AI fitting preview generated for size ' + S.sizeName + ' — rotate or change color tones anytime.'
-          : 'Preview generated. Add notes and regenerate anytime.';
-
+        /* display */
         initThree();
         if (T3) {
-          showResult3D();
-          loadTex(S.generatedUrl, function (success) {
-            if (!success) {
-              console.warn('[DR] 3D texture failed, falling back to 2D view');
-              showResult2D();
+          show3D();
+          loadTex(S.generatedUrl, function (ok) {
+            if (!ok) {
+              /* WebGL failed — show flat image on the 2D dress element */
+              elDress2D.src    = S.generatedUrl;
+              elDress2D.hidden = false;
+              show2DFigure();
             }
-            applyColorTone();
-            hideLoading();
-            elContact.disabled     = false;
-            elGenerate.disabled    = false;
-            elGenerate.textContent = 'Regenerate';
-            setStatus(readyMsg, 'ok');
+            _finishGenerate(data.is_ai);
           });
         } else {
-          showResult2D();
-          applyColorTone();
-          hideLoading();
-          elContact.disabled     = false;
-          elGenerate.disabled    = false;
-          elGenerate.textContent = 'Regenerate';
-          setStatus(readyMsg, 'ok');
+          elDress2D.src    = S.generatedUrl;
+          elDress2D.hidden = false;
+          show2DFigure();
+          _finishGenerate(data.is_ai);
         }
 
-        // Safety fallback: ensure loading overlay never stays stuck
-        setTimeout(function () {
-          hideLoading();
-          if (elGenerate) elGenerate.disabled = false;
-        }, 1200);
+        setTimeout(hideLoading, 1000); // safety
       })
       .catch(function (err) {
-        clearTimeout(timerID);
-        if (err.name === 'AbortError') {
-          console.log('[DR] Fetch aborted (likely user switched size or reloaded)');
-          return;
-        }
-        activeCtrl = null;
-        S.busy = false;
+        clearTimeout(tID);
+        if (err.name === 'AbortError') { console.log('[DR] Aborted'); return; }
+        _activeCtrl = null; S.busy = false;
         hideLoading();
         elGenerate.disabled    = false;
         elGenerate.textContent = 'Try again';
-
         setStatus('Error: ' + err.message, 'error');
-        console.error('[DR] Generate failed:', err);
+        console.error('[DR] Generate error:', err);
       });
+  }
+
+  function _finishGenerate(isAi) {
+    hideLoading();
+    elContact.disabled     = false;
+    elGenerate.disabled    = false;
+    elGenerate.textContent = 'Regenerate';
+    setStatus(
+      isAi
+        ? 'AI preview ready — drag to rotate the 3D model. Change colour tones or add notes and regenerate.'
+        : 'Preview ready — drag to rotate, change colours/fabric and regenerate.',
+      'ok'
+    );
   }
 
   elGenerate.addEventListener('click', triggerGenerate);
 
-  /* ── settings change ─────────────────────────────────────────────── */
-  function markStale() {
-    if (S.hasResult) {
-      elGenerate.textContent = 'Regenerate';
-      setStatus('Setting changed — click "Regenerate" or pick another size/fabric.');
-    }
-  }
-
-  /* ── Custom Design Description: Auto-generates what is in the description ─ */
-  elNotes.addEventListener('input', function () {
-    var cur = (elNotes.value || '').trim();
-    if (elGenerate) {
-      elGenerate.textContent = cur ? 'Generate Custom Look' : (S.hasResult ? 'Regenerate' : 'Generate Look');
-    }
-    if (S.file) {
-      setStatus('Custom design specified — auto-generating your custom look in a moment (or press Enter)…');
-      autoGenerateDebounced(1200);
-    } else {
-      markStale();
-    }
-  });
-
-  elNotes.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (S.file) {
-        triggerGenerate();
-      } else {
-        setStatus('Upload a cloth photo first.', 'warn');
-        elFile.focus();
-      }
-    }
-  });
-
-  elNotes.addEventListener('blur', function () {
-    var cur = (elNotes.value || '').trim();
-    if (S.file && cur !== S.lastNotes) {
-      autoGenerateDebounced(200);
-    }
-  });
-
-  /* ── Body Size: Auto-generates that same image with selected body size ─ */
+  /* ── size buttons ──────────────────────────────────────────────── */
   elSizeButtons.addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     elSizeButtons.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
@@ -526,39 +476,31 @@
     S.sizeMeasure = b.dataset.m || '';
     elSizeInfo.textContent = 'Size ' + S.sizeName + ' · ' + S.sizeMeasure + ' cm';
     paint2D();
-
-    if (S.file) {
-      setStatus('Size ' + S.sizeName + ' selected — auto-generating fitting preview…');
-      autoGenerateDebounced(180);
-    } else {
-      markStale();
-    }
+    if (S.file) { setStatus('Size ' + S.sizeName + ' — regenerating…'); _autoGenDebounce(200); }
   });
 
+  /* ── fabric buttons ────────────────────────────────────────────── */
   elFabrics.addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     elFabrics.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
     b.classList.add('on');
     S.fabric = b.textContent.trim();
-    paint2D();
-    if (S.file) {
-      setStatus('Fabric ' + S.fabric + ' selected — click "Regenerate" to update fitting.');
-    }
-    markStale();
+    if (S.file) { setStatus('Fabric: ' + S.fabric + ' — regenerating…'); _autoGenDebounce(300); }
   });
 
-  /* ── Color Tones: Works dynamically even when image is generated ─── */
+  /* ── colour palette ────────────────────────────────────────────── */
   elPalettes.addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     elPalettes.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
     b.classList.add('on');
-    var rawF = b.dataset.f || 'none';
-    S.colour    = rawF;
-    S.colourCSS = (rawF && rawF !== 'none') ? rawF : '';
-    applyColorTone();
-    paint2D();
-    var toneName = b.getAttribute('aria-label') || 'selected';
-    setStatus('Color tone set to ' + toneName + '.');
+    S.colour = b.dataset.f || 'none';
+    /* Apply to 3D mesh immediately (no re-generate needed) */
+    applyColourToMesh();
+    /* Also apply CSS filter to 2D fallback image */
+    var css = (S.colour && S.colour !== 'none') ? S.colour : '';
+    elDress2D.style.filter = css;
+    var label = b.getAttribute('aria-label') || 'selected';
+    setStatus('Colour tone: ' + label + '.', 'ok');
   });
 
   elPalNav.addEventListener('click', function (e) {
@@ -568,99 +510,124 @@
     document.querySelectorAll('.pal').forEach(function (p) { p.hidden = p.dataset.p !== b.dataset.p; });
   });
 
-  /* ── zoom ─────────────────────────────────────────────────────────── */
-  elZoomIn.addEventListener('click',  function () { S.zoom = Math.min(S.zoom + .15, 2.5); paint2D(); if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom-1)*.8); });
-  elZoomOut.addEventListener('click', function () { S.zoom = Math.max(S.zoom - .15, .5);  paint2D(); if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom-1)*.8); });
+  /* ── notes ─────────────────────────────────────────────────────── */
+  elNotes.addEventListener('input', function () {
+    var v = elNotes.value.trim();
+    elGenerate.textContent = v ? 'Generate Custom Look' : (S.hasResult ? 'Regenerate' : 'Generate preview');
+    if (S.file) _autoGenDebounce(1400);
+  });
+  elNotes.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (S.file) triggerGenerate(); }
+  });
 
-  /* ── reset ───────────────────────────────────────────────────────── */
+  /* ── zoom ──────────────────────────────────────────────────────── */
+  elZoomIn.addEventListener('click',  function () {
+    S.zoom = Math.min(S.zoom + .15, 2.5);
+    if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom - 1) * .8);
+    paint2D();
+  });
+  elZoomOut.addEventListener('click', function () {
+    S.zoom = Math.max(S.zoom - .15, .5);
+    if (T3) T3.camera.position.z = Math.max(1.2, 2.8 - (S.zoom - 1) * .8);
+    paint2D();
+  });
+
+  /* ── reset ─────────────────────────────────────────────────────── */
   elReset.addEventListener('click', function () {
     S.zoom = 1; S.x = 0; S.y = 0; S.rotX = 0; S.rotY = 0;
-    S.colour = 'none'; S.colourCSS = ''; S.fabric = 'Premium Gabardine';
+    S.colour = 'none'; S.fabric = 'Premium Gabardine';
     elPalettes.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
     var fp = elPalettes.querySelector('.pal button'); if (fp) fp.classList.add('on');
     elFabrics.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
     var fb = elFabrics.querySelector('button'); if (fb) fb.classList.add('on');
-    if (T3) { T3.mesh.rotation.set(0,0,0); T3.camera.position.z = 2.8; }
+    if (T3) {
+      T3.mesh.rotation.set(0, 0, 0);
+      T3.mat.color.setRGB(1, 1, 1);
+      T3.camera.position.z = 2.8;
+    }
+    elDress2D.style.filter = '';
     paint2D();
+    setStatus('Reset.');
   });
 
-  /* ── drag / rotate ───────────────────────────────────────────────── */
-  var drag = null;
+  /* ── drag to rotate (model only, background fixed) ─────────────── */
+  var _drag = null;
 
   elCanvas.addEventListener('pointerdown', function (e) {
     if (e.target.closest('button') || e.target.closest('label')) return;
-    drag = { sx: e.clientX, sy: e.clientY, rotY: S.rotY, rotX: S.rotX, px: S.x, py: S.y,
-             is3d: elCanvas.classList.contains('mode-3d') };
+    _drag = { sx: e.clientX, sy: e.clientY,
+              rotY: S.rotY, rotX: S.rotX,
+              px: S.x, py: S.y,
+              is3d: elCanvas.classList.contains('mode-3d') };
     elCanvas.setPointerCapture(e.pointerId);
     elCanvas.classList.add('grab');
   });
 
   elCanvas.addEventListener('pointermove', function (e) {
-    if (!drag) return;
-    var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-    if (drag.is3d) {
-      S.rotY = Math.max(-75, Math.min(75, drag.rotY + dx * .45));
-      S.rotX = Math.max(-15, Math.min(15, drag.rotX - dy * .12));
-      applyRot();
+    if (!_drag) return;
+    var dx = e.clientX - _drag.sx, dy = e.clientY - _drag.sy;
+    if (_drag.is3d && T3) {
+      S.rotY = Math.max(-80, Math.min(80, _drag.rotY + dx * 0.5));
+      S.rotX = Math.max(-20, Math.min(20, _drag.rotX - dy * 0.15));
+      applyRot();  // only mesh rotates, background is in a separate scene
     } else {
-      S.x = drag.px + dx; S.y = drag.py + dy; paint2D();
+      S.x = _drag.px + dx; S.y = _drag.py + dy; paint2D();
     }
   });
 
   ['pointerup','pointercancel','lostpointercapture'].forEach(function (ev) {
-    elCanvas.addEventListener(ev, function () { drag = null; elCanvas.classList.remove('grab'); });
+    elCanvas.addEventListener(ev, function () { _drag = null; elCanvas.classList.remove('grab'); });
   });
 
-  /* ── tool toggle ─────────────────────────────────────────────────── */
-  elToolMove.addEventListener('click', function () { elToolMove.classList.add('on'); elToolColor.classList.remove('on'); });
+  /* ── tool toggle ────────────────────────────────────────────────── */
+  elToolMove.addEventListener('click', function () {
+    elToolMove.classList.add('on'); elToolColor.classList.remove('on');
+    setStatus('Drag the preview to rotate the model 360°.');
+  });
   elToolColor.addEventListener('click', function () {
     elToolColor.classList.add('on'); elToolMove.classList.remove('on');
     var dock = document.querySelector('.dock');
     if (dock) dock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setStatus('Pick a colour tone to apply to the garment instantly.');
   });
 
-  /* ── WhatsApp contact ────────────────────────────────────────────── */
+  /* ── WhatsApp contact ───────────────────────────────────────────── */
   elContact.addEventListener('click', function () {
     if (!S.hasResult) return;
     var waBase = document.body.dataset.whatsappUrl || 'https://wa.me/2349166901393';
     var notes  = (elNotes.value || '').trim();
     var msg = 'Hello Omafrans Couture, I would love you to sew this dress for me.\n'
             + 'Size: ' + S.sizeName + ' (' + S.sizeMeasure + ' cm).\n'
-            + 'Fabric: ' + S.fabric + '.'
+            + 'Fabric preference: ' + S.fabric + '.'
             + (notes ? '\nDesign notes: ' + notes : '')
             + '\nI created a fitting preview in your AI Dressing Room.';
 
-    if (S.generatedUrl) {
-      fetch(S.generatedUrl)
-        .then(function (r) { return r.blob(); })
-        .then(function (blob) {
-          var imgFile = new File([blob], 'omafrans-fitting-preview.png', { type: 'image/png' });
-          if (navigator.canShare && navigator.canShare({ files: [imgFile] }) && navigator.share) {
-            return navigator.share({ files: [imgFile], title: 'Omafrans Couture Fitting Preview', text: msg });
-          }
-          throw new Error('no-share');
-        })
-        .then(function () {
-          setStatus('Select WhatsApp in the share menu.', 'ok');
-        })
-        .catch(function (err) {
-          if (err && err.name === 'AbortError') return;
-          // Fallback: download + open WA
-          var a = document.createElement('a');
-          a.href = S.generatedUrl; a.download = 'omafrans-fitting-preview.png'; a.click();
-          window.open(waBase + '?text=' + encodeURIComponent(msg), '_blank', 'noopener');
-          setStatus('Preview downloaded. Attach it in the WhatsApp chat.', 'ok');
-        });
-    } else {
+    if (!S.generatedUrl) { window.open(waBase + '?text=' + encodeURIComponent(msg), '_blank', 'noopener'); return; }
+
+    fetch(S.generatedUrl).then(function (r) { return r.blob(); }).then(function (blob) {
+      var f = new File([blob], 'omafrans-fitting-preview.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [f] }) && navigator.share) {
+        return navigator.share({ files: [f], title: 'Omafrans Couture Fitting Preview', text: msg });
+      }
+      throw new Error('fallback');
+    }).then(function () {
+      setStatus('Select WhatsApp in the share menu.', 'ok');
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return;
+      if (S.generatedUrl) {
+        var a = document.createElement('a');
+        a.href = S.generatedUrl; a.download = 'omafrans-fitting-preview.png'; a.click();
+      }
       window.open(waBase + '?text=' + encodeURIComponent(msg), '_blank', 'noopener');
-    }
+      setStatus('Preview downloaded — attach it in the WhatsApp chat.', 'ok');
+    });
   });
 
-  /* ── boot ────────────────────────────────────────────────────────── */
+  /* ── boot ───────────────────────────────────────────────────────── */
   hideLoading();
   paint2D();
   setStatus('Upload a dress photo to begin.');
   loadCollectionDress();
-  console.log('[DR] Dressing room ready. API:', API_URL);
+  console.log('[DR] Ready. API:', API_URL);
 
 })();
