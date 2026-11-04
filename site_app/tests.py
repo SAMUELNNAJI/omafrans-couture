@@ -120,6 +120,14 @@ class AIGenerationTests(TestCase):
             payload["generationConfig"]["responseModalities"],
             ["TEXT", "IMAGE"],
         )
+        self.assertEqual(
+            post.call_args.args[0],
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent",
+        )
+        self.assertEqual(
+            post.call_args.kwargs["headers"]["x-goog-api-key"], "test-key"
+        )
+        self.assertNotIn("?key=", post.call_args.args[0])
         self.assertEqual(payload["generationConfig"]["imageConfig"]["aspectRatio"], "3:4")
         prompt = payload["contents"][0]["parts"][1]["text"]
         self.assertIn("rear view", prompt.lower())

@@ -884,7 +884,7 @@ def _generate_with_gemini(
     )
 
     model = "gemini-3.1-flash-image"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [
             {
@@ -908,7 +908,10 @@ def _generate_with_gemini(
         resp = requests.post(
             url,
             json=payload,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
             timeout=100,
         )
     except requests.RequestException as exc:
