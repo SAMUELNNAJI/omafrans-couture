@@ -165,8 +165,9 @@ class AIGenerationTests(TestCase):
 
         with self.assertRaisesRegex(
             ImageGenerationError, "generic Pollinations fallback was disabled"
-        ):
+        ) as error:
             generate_try_on(dress_bytes=b"image")
+        self.assertIn("Provider error: Gemini limit reached.", str(error.exception))
         gemini.assert_called_once()
         pillow_fallback.assert_not_called()
 

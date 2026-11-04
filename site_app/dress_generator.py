@@ -975,6 +975,7 @@ def generate_try_on(
     # Gemini receives the garment pixels as part of the generation request.  It must be
     # preferred for try-on: Pollinations only receives a textual garment description and
     # therefore cannot preserve an exact wax print, trim placement, or construction.
+    gemini_error: ImageGenerationError | None = None
     if gemini_key:
         try:
             generated_image = _generate_with_gemini(
@@ -982,6 +983,7 @@ def generate_try_on(
             )
             return generated_image, True
         except ImageGenerationError as exc:
+            gemini_error = exc
             logger.warning("Gemini reference-image try-on failed: %s", exc)
 
     # Do not silently replace a failed reference-image request with a generic
@@ -997,11 +999,12 @@ def generate_try_on(
             logger.warning("Pollinations approximate fallback failed: %s", exc)
             raise ImageGenerationError(f"Pollinations approximate preview failed: {exc}") from exc
 
-    if gemini_key:
+    if gemini_error is not None:
         raise ImageGenerationError(
             "Gemini could not generate the reference-image fitting preview. "
-            "The generic Pollinations fallback was disabled so an unrelated image is not shown."
-        )
+            "The generic Pollinations fallback was disabled so an unrelated image is not shown. "
+            f"Provider error: {gemini_error}"
+        ) from gemini_error
 
     raise ImageGenerationError(
         "No AI generation key configured. Set POLLINATIONS_API_KEY or GEMINI_API_KEY."

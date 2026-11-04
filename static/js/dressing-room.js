@@ -458,7 +458,8 @@
         elGenerate.disabled    = false;
         elGenerate.textContent = 'Try again';
         if (!S.hasResult) {
-          showPreviewPlaceholder('No AI fitting was generated. Your upload is shown only in the thumbnail.');
+          var reason = err.name === 'AbortError' ? 'Generation timed out. Please try again.' : err.message;
+          showPreviewPlaceholder('No AI fitting was generated. Your upload is shown only in the thumbnail. ' + reason);
         }
         setStatus(err.name === 'AbortError' ? 'Generation timed out. Please try again.' : err.message, 'error');
         console.error('[DR] Generate error:', err);
